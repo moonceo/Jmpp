@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { AlertTriangle, Send } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { Inquiry } from "@/types/inquiry";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -96,8 +96,7 @@ export function ReplyModal({ isOpen, onClose, inquiry, onConfirmReply }: ReplyMo
 
                         <DialogFooter>
                             <Button variant="outline" onClick={onClose}>취소</Button>
-                            <Button onClick={handleSendClick} className="gap-2">
-                                <Send className="h-4 w-4" />
+                            <Button onClick={handleSendClick}>
                                 답변 전송
                             </Button>
                         </DialogFooter>

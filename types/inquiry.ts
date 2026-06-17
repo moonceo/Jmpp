@@ -31,7 +31,7 @@ export interface Inquiry {
     replyContent?: string;
     repliedAt?: string;
 
-    // Metadata for external link handling (ESM/11st)
+    // Metadata for external market admin link handling
     isExternal?: boolean;
     externalLink?: string; // Link to market admin center for reply
 }

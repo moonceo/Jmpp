@@ -12,7 +12,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { RefreshCw, Search, MessageSquare, CheckCircle2, Store } from "lucide-react";
+import { Search, MessageSquare, CheckCircle2, Store } from "lucide-react";
 import { InquiryListItem } from "@/components/inquiries/inquiry-list-item";
 import { ReplyModal } from "@/components/inquiries/reply-modal";
 import { mockInquiries, mockInquiryStats } from "@/lib/mock-data/inquiries";
@@ -127,7 +127,6 @@ export default function InquiriesPage() {
                                     disabled={isSyncing}
                                     className="min-w-[140px]"
                                 >
-                                    <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
                                     {isSyncing ? "동기화 중..." : "문의 불러오기"}
                                 </Button>
                             </TooltipTrigger>
@@ -230,7 +229,6 @@ function EmptyState({ tab }: { tab: string }) {
             </p>
             {tab === 'waiting' && (
                 <Button variant="outline" className="mt-6">
-                    <RefreshCw className="h-4 w-4 mr-2" />
                     혹시 모르니 다시 불러오기
                 </Button>
             )}

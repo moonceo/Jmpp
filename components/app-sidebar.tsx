@@ -1,23 +1,10 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import {
-    LayoutDashboard,
-    ShoppingCart,
-    MessageSquare,
-    User,
-    ChevronRight,
-    MoreHorizontal,
-    Home,
-    Package,
-    Truck,
-    RotateCcw,
-    ListOrdered,
-    Clock,
-} from "lucide-react"
-import Link from "next/link"
-import { usePathname } from "next/navigation"
-
+import * as React from "react";
+import { Suspense } from "react";
+import { ChevronRight, DatabaseBackup, Download, Home, LayoutDashboard, MessageSquare, RefreshCw, ShoppingCart, User } from "lucide-react";
+import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
     Sidebar,
     SidebarContent,
@@ -30,14 +17,26 @@ import {
     SidebarMenuSubButton,
     SidebarMenuSubItem,
     SidebarGroup,
-    SidebarGroupLabel,
     SidebarGroupContent,
-} from "@/components/ui/sidebar"
-import {
-    Collapsible,
-    CollapsibleContent,
-    CollapsibleTrigger,
-} from "@/components/ui/collapsible"
+} from "@/components/ui/sidebar";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+
+type NavSubItem = {
+    title: string;
+    url?: string;
+    count?: number;
+    priority?: boolean;
+};
+
+const orderCounts = {
+    all: 4,
+    new: 1,
+    preparing: 3,
+    waiting: 1,
+    shipping: 1,
+    delivered: 1,
+    claims: 3,
+};
 
 const navItems = [
     {
@@ -46,16 +45,22 @@ const navItems = [
         icon: LayoutDashboard,
     },
     {
-        title: "주문관리",
+        title: "주문수집",
         url: "/orders",
         icon: ShoppingCart,
         items: [
             { title: "전체", url: "/orders" },
-            { title: "신규주문", url: "/orders/new" },
-            { title: "발송대기", url: "/orders/waiting" },
-            { title: "배송중", url: "/orders/shipping" },
-            { title: "반품/교환/취소", url: "/orders/claims" },
-        ],
+            { title: "신규주문", url: "/orders?view=new" },
+            { title: "상품준비", url: "/orders?view=preparing" },
+            { title: "발송대기", url: "/orders?view=waiting" },
+            { title: "배송중", url: "/orders?view=shipping" },
+            { title: "배송완료", url: "/orders?view=delivered" },
+        ] satisfies NavSubItem[],
+    },
+    {
+        title: "취소/반품/교환",
+        url: "/orders?view=claims",
+        icon: RefreshCw,
     },
     {
         title: "문의관리",
@@ -63,14 +68,55 @@ const navItems = [
         icon: MessageSquare,
     },
     {
-        title: "내정보",
-        url: "/me/plan",
+        title: "장부 다운로드",
+        url: "/ledger",
+        icon: Download,
+    },
+    {
+        title: "내 정보",
+        url: "/me/markets",
         icon: User,
     },
-]
+];
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
-    const pathname = usePathname()
+function isSubItemActive(url: string | undefined, pathname: string, view: string | null) {
+    if (!url) return false;
+    const [path, query] = url.split("?");
+    if (pathname !== path) return false;
+
+    const itemView = query ? new URLSearchParams(query).get("view") : null;
+    return itemView ? view === itemView : !view;
+}
+
+function isNavItemActive(url: string, pathname: string, view: string | null) {
+    const [path, query] = url.split("?");
+    if (pathname !== path && (path === "/" || !pathname.startsWith(path))) return false;
+
+    const itemView = query ? new URLSearchParams(query).get("view") : null;
+    if (itemView) return pathname === path && view === itemView;
+    if (path === "/orders") return pathname === path && !view;
+
+    return true;
+}
+
+export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
+    return (
+        <Suspense fallback={<Sidebar variant="inset" {...props} />}>
+            <AppSidebarContent {...props} />
+        </Suspense>
+    );
+}
+
+function AppSidebarContent({ ...props }: React.ComponentProps<typeof Sidebar>) {
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
+    const view = searchParams.get("view");
+    const resetDemoData = () => {
+        window.localStorage.removeItem("jumunpangpang.syncedInvoices");
+        window.localStorage.removeItem("jumunpangpang.sourcingMatches");
+        window.localStorage.removeItem("jumunpangpang.sourcingPayments");
+        window.location.reload();
+    };
 
     return (
         <Sidebar variant="inset" {...props}>
@@ -83,8 +129,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                     <Home className="size-4" />
                                 </div>
                                 <div className="grid flex-1 text-left text-sm leading-tight">
-                                    <span className="truncate font-semibold">주문팡팡</span>
-                                    <span className="truncate text-xs">AI 주문 통합 관리</span>
+                                    <span className="truncate font-semibold">주문수집소싱라이프</span>
+                                    <span className="truncate text-xs">주문수집 · 구매대행 보조</span>
                                 </div>
                             </Link>
                         </SidebarMenuButton>
@@ -97,18 +143,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                         <SidebarMenu>
                             {navItems.map((item) =>
                                 item.items ? (
-                                    <Collapsible
-                                        key={item.title}
-                                        asChild
-                                        defaultOpen={true}
-                                        className="group/collapsible"
-                                    >
+                                    <Collapsible key={item.title} asChild defaultOpen className="group/collapsible">
                                         <SidebarMenuItem>
                                             <CollapsibleTrigger asChild>
                                                 <SidebarMenuButton
                                                     tooltip={item.title}
-                                                    isActive={pathname === item.url || (item.url !== "/" && pathname.startsWith(item.url))}
-                                                    className="data-[active=true]:bg-sidebar-accent data-[active=true]:font-bold data-[active=true]:shadow-sm data-[active=true]:border-l-4 data-[active=true]:border-primary data-[active=true]:rounded-l-none"
+                                                    isActive={item.items.some((subItem) => isSubItemActive(subItem.url, pathname, view))}
+                                                    className="data-[active=true]:rounded-l-none data-[active=true]:border-l-4 data-[active=true]:border-primary data-[active=true]:bg-sidebar-accent data-[active=true]:font-bold data-[active=true]:shadow-sm"
                                                 >
                                                     <item.icon />
                                                     <span>{item.title}</span>
@@ -117,19 +158,32 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                             </CollapsibleTrigger>
                                             <CollapsibleContent>
                                                 <SidebarMenuSub>
-                                                    {item.items.map((subItem) => (
+                                                    {item.items.map((subItem) => {
+                                                        const countKey = subItem.url?.includes("view=")
+                                                            ? subItem.url.split("view=")[1] as keyof typeof orderCounts
+                                                            : subItem.title === "전체" ? "all" : undefined;
+                                                        const count = countKey ? orderCounts[countKey] : undefined;
+                                                        const isPriority = countKey ? ["all", "new", "preparing", "waiting", "claims"].includes(countKey) : false;
+
+                                                        return (
                                                         <SidebarMenuSubItem key={subItem.title}>
                                                             <SidebarMenuSubButton
                                                                 asChild
-                                                                isActive={pathname === subItem.url}
+                                                                isActive={isSubItemActive(subItem.url, pathname, view)}
                                                                 className="data-[active=true]:font-semibold data-[active=true]:text-primary"
                                                             >
-                                                                <Link href={subItem.url}>
+                                                                <Link href={subItem.url!}>
                                                                     <span>{subItem.title}</span>
+                                                                    {typeof count === "number" && (
+                                                                        <span className={`ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${isPriority ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                                                                            {count}
+                                                                        </span>
+                                                                    )}
                                                                 </Link>
                                                             </SidebarMenuSubButton>
                                                         </SidebarMenuSubItem>
-                                                    ))}
+                                                        );
+                                                    })}
                                                 </SidebarMenuSub>
                                             </CollapsibleContent>
                                         </SidebarMenuItem>
@@ -139,8 +193,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                         <SidebarMenuButton
                                             asChild
                                             tooltip={item.title}
-                                            isActive={pathname === item.url || (item.url !== "/" && pathname.startsWith(item.url))}
-                                            className="data-[active=true]:bg-sidebar-accent data-[active=true]:font-bold data-[active=true]:shadow-sm data-[active=true]:border-l-4 data-[active=true]:border-primary data-[active=true]:rounded-l-none"
+                                            isActive={isNavItemActive(item.url, pathname, view)}
+                                            className="data-[active=true]:rounded-l-none data-[active=true]:border-l-4 data-[active=true]:border-primary data-[active=true]:bg-sidebar-accent data-[active=true]:font-bold data-[active=true]:shadow-sm"
                                         >
                                             <Link href={item.url}>
                                                 <item.icon />
@@ -148,7 +202,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                             </Link>
                                         </SidebarMenuButton>
                                     </SidebarMenuItem>
-                                )
+                                ),
                             )}
                         </SidebarMenu>
                     </SidebarGroupContent>
@@ -157,7 +211,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             <SidebarFooter>
                 <SidebarMenu>
                     <SidebarMenuItem>
-                        <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground" asChild>
+                        <SidebarMenuButton onClick={resetDemoData} tooltip="데이터 초기화">
+                            <DatabaseBackup />
+                            <span>데이터 초기화</span>
+                        </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                        <SidebarMenuButton size="lg" asChild>
                             <Link href="/me/profile">
                                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg border">
                                     <User className="size-4" />
@@ -172,5 +232,5 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 </SidebarMenu>
             </SidebarFooter>
         </Sidebar>
-    )
+    );
 }

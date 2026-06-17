@@ -1,424 +1,676 @@
 "use client";
 
+import { useRef, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { Order } from "@/types/order";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
-import { ChevronDown, ChevronRight, AlertCircle, Truck, CheckCircle2, StickyNote, ExternalLink } from "lucide-react";
-import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { ExternalLink } from "lucide-react";
 import Image from "next/image";
-import { formatDistanceToNow } from "date-fns";
-import { ko } from "date-fns/locale";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SourcingWorkflowDialog } from "@/components/orders/sourcing-workflow-dialog";
+import { CLAIM_TYPE_LABELS, MARKET_LABELS, ORDER_STATUS_LABELS, SOURCING_LIFE_STATUS_LABELS } from "@/lib/constants/orders";
 import { cn } from "@/lib/utils";
-import { ORDER_STATUSES } from "@/lib/constants/orders";
+import { Order, OrderStatus, Recipient, SourcingLifeMatch } from "@/types/order";
 
-// Helper for status badge colors
-const getStatusBadgeVariant = (status: string) => {
-    // New Order: Black/White (Default)
-    if (status === '신규 주문') return 'default';
-
-    // Waiting Sourcing/Selection: Orange/Yellow
-    if (status === '소싱상품 선택대기' || status === '발송대기' || status === '입고 대기' || status === '입고중' || status === '견적 완료') return 'secondary'; // Tailwind 'secondary' is usually gray/zinc. We might need custom classes if 'variant' is limited to shadcn presets. 
-    // Actually, Shadcn Badge variants are usually: default, secondary, destructive, outline. 
-    // For more colors, we might need to apply className directly in the cell.
-
-    // Statuses generally:
-    if (status.includes('취소') || status.includes('반품') || status.includes('오류') || status.includes('거절') || status.includes('불가') || status.includes('실패')) return 'destructive';
-
-    if (status === '결제 대기' || status === '배송비 결제 대기') return 'outline'; // Blue-ish intent?
-
-    if (status === '결제 완료' || status === '배송비 결제 완료') return 'outline'; // Green-ish intent?
-
-    return 'outline';
-};
-
-// ... (getStatusBadgeVariant limitations handled in Cell)
-
-const getStatusColorClass = (status: string) => {
-    if (status === '신규 주문') return 'bg-zinc-900 text-white hover:bg-zinc-800 border-zinc-900';
-
-    if (status === '소싱상품 선택대기' || status === '발송대기') return 'bg-orange-100 text-orange-700 hover:bg-orange-100 border-orange-200';
-    if (status === '입고 대기' || status === '입고중' || status === '견적 완료') return 'bg-yellow-100 text-yellow-700 hover:bg-yellow-100 border-yellow-200';
-
-    if (status === '결제 대기' || status === '배송비 결제 대기') return 'bg-sky-100 text-sky-700 hover:bg-sky-100 border-sky-200';
-    if (status === '결제 완료' || status === '배송비 결제 완료') return 'bg-green-100 text-green-700 hover:bg-green-100 border-green-200';
-
-    if (status.includes('배송') || status.includes('통관') || status.includes('출고')) return 'bg-indigo-50 text-indigo-700 hover:bg-indigo-50 border-indigo-200';
-
-    if (status.includes('취소') || status.includes('반품') || status.includes('오류') || status.includes('거절') || status.includes('불가') || status.includes('실패')) return 'bg-red-50 text-red-700 hover:bg-red-50 border-red-200';
-
-    return 'bg-gray-100 text-gray-700 hover:bg-gray-100 border-gray-200';
+interface OrderColumnActions {
+    onSaveSourcingMatch: (order: Order, match: SourcingLifeMatch) => void;
+    onCompleteSourcingPayment: (order: Order, match: SourcingLifeMatch) => void;
+    onCompleteManualPurchase: (order: Order, invoice?: ManualPurchaseInvoice, sendNow?: boolean) => void;
+    onSourcingAndAcceptOrder: (order: Order, match: SourcingLifeMatch) => void;
+    onAcceptOrder: (order: Order) => void;
+    onCancelOrder: (order: Order) => void;
+    onApproveCancelClaim: (order: Order) => void;
+    onRejectCancelClaim: (order: Order) => void;
+    onSendInvoice: (order: Order, carrier?: string, trackingNumber?: string) => void;
+    onSaveInvoice: (order: Order, carrier: string, trackingNumber: string) => void;
+    onUpdateShippingInvoice: (order: Order, carrier: string, trackingNumber: string) => void;
+    onSaveRecipientInfo: (order: Order, recipient: Recipient) => void;
 }
 
-const getMarketIcon = (market: string) => {
-    switch (market) {
-        case 'naver':
-            return <div className="w-5 h-5 bg-[#03C75A] text-white text-[10px] font-bold flex items-center justify-center rounded-sm">N</div>;
-        case 'coupang':
-            return <div className="w-5 h-5 bg-[#E61328] text-white text-[10px] font-bold flex items-center justify-center rounded-sm">C</div>;
-        case '11st':
-            return <div className="w-5 h-5 bg-[#F43142] text-white text-[10px] font-bold flex items-center justify-center rounded-sm">11</div>;
-        case 'esm':
-        case 'gmarket':
-        case 'auction':
-            return <div className="w-5 h-5 bg-[#02a94f] text-white text-[8px] font-bold flex items-center justify-center rounded-sm">ESM</div>;
-        default:
-            return <div className="w-5 h-5 bg-gray-500 text-white text-[10px] font-bold flex items-center justify-center rounded-sm">E</div>;
-    }
+interface ManualPurchaseInvoice {
+    carrier: string;
+    trackingNumber: string;
+}
+
+const progressStatus = (order: Order) => order.previousStatus ?? order.status;
+
+const isCancelClaimProcessed = (order: Order) => (
+    order.claimStatus === "취소승인 전송완료"
+    || order.claimStatus === "취소거부 전송완료"
+);
+
+const claimActionLabel = (order: Order) => {
+    if (order.claimType === "CANCEL") return "취소처리";
+    if (order.claimType === "RETURN") return "반품처리";
+    if (order.claimType === "EXCHANGE") return "교환처리";
+    return "클레임처리";
 };
 
-// Helper removed as we use storeName directly
+const statusClass = (status: OrderStatus) => {
+    if (status === "NEW") return "bg-zinc-900 text-white border-zinc-900";
+    if (status === "PREPARING") return "bg-amber-50 text-amber-700 border-amber-200";
+    if (status === "READY_TO_SHIP") return "bg-indigo-50 text-indigo-700 border-indigo-200";
+    if (status === "SHIPPING") return "bg-sky-50 text-sky-700 border-sky-200";
+    if (status === "DELIVERED") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+    if (status === "CANCELED") return "bg-slate-100 text-slate-700 border-slate-200";
+    return "bg-red-50 text-red-700 border-red-200";
+};
 
+const claimTypeClass = (order: Order) => {
+    if (order.claimType === "CANCEL") return "bg-red-50 text-red-700 border-red-200";
+    if (order.claimType === "RETURN") return "bg-amber-50 text-amber-700 border-amber-200";
+    if (order.claimType === "EXCHANGE") return "bg-violet-50 text-violet-700 border-violet-200";
+    return statusClass(order.status);
+};
 
-// Reordered columns based on documentation:
-// Actions -> OrderDate -> Product -> Status -> Recipient -> Price -> Market -> Memo.
+const orderStatusLabel = (order: Order) => {
+    if (order.status === "CLAIM" && order.claimType) return CLAIM_TYPE_LABELS[order.claimType];
+    return ORDER_STATUS_LABELS[order.status];
+};
 
-export const columns: ColumnDef<Order>[] = [
-    {
-        id: "select",
-        header: ({ table }) => (
-            <Checkbox
-                checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
-                onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-                aria-label="Select all"
-                className="translate-y-[2px] border-zinc-300 data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600"
-            />
-        ),
-        cell: ({ row }) => (
-            <Checkbox
-                checked={row.getIsSelected()}
-                onCheckedChange={(value) => row.toggleSelected(!!value)}
-                aria-label="Select row"
-                className="translate-y-[2px] border-zinc-300 data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600"
-                onClick={(e) => e.stopPropagation()}
-            />
-        ),
-        enableSorting: false,
-        enableHiding: false,
-    },
-    {
-        id: "expander",
-        header: () => null,
-        cell: ({ row }) => {
-            return (
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 p-0 hover:bg-muted"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        row.toggleExpanded();
-                    }}
-                >
-                    {row.getIsExpanded() ? (
-                        <ChevronDown className="h-4 w-4" />
-                    ) : (
-                        <ChevronRight className="h-4 w-4" />
+const orderStatusClass = (order: Order) => {
+    if (order.status === "CLAIM") return claimTypeClass(order);
+    return statusClass(order.status);
+};
+
+function OrderStatusCell({ order }: { order: Order }) {
+    if (order.status !== "CLAIM") {
+        return (
+            <Badge variant="outline" className={cn("whitespace-nowrap border font-medium", orderStatusClass(order))}>
+                {orderStatusLabel(order)}
+            </Badge>
+        );
+    }
+
+    const stage = progressStatus(order);
+
+    return (
+        <div className="space-y-1">
+            <Badge variant="outline" className={cn("whitespace-nowrap border font-medium", statusClass(stage))}>
+                {ORDER_STATUS_LABELS[stage]}
+            </Badge>
+            <Badge variant="outline" className={cn("whitespace-nowrap border font-medium", claimTypeClass(order))}>
+                {order.claimStatus ?? (order.claimType ? CLAIM_TYPE_LABELS[order.claimType] : ORDER_STATUS_LABELS[order.status])}
+            </Badge>
+        </div>
+    );
+}
+
+const customsState = (code?: string) => {
+    return code?.trim() && /^P\d{12}$/.test(code.trim().toUpperCase()) ? "확인완료" : "확인필요";
+};
+
+function ProductImageDialog({ order }: { order: Order }) {
+    const [open, setOpen] = useState(false);
+
+    const copyImage = async () => {
+        try {
+            await navigator.clipboard.writeText(order.product.thumbnail);
+            toast.success("상품 이미지 주소를 복사했습니다.");
+        } catch {
+            toast.error("이미지 복사에 실패했습니다.");
+        }
+    };
+
+    return (
+        <>
+            <button type="button" className="relative h-10 w-10 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm transition hover:border-sky-300 hover:ring-2 hover:ring-sky-100" onClick={() => setOpen(true)}>
+                <Image src={order.product.thumbnail} alt={order.product.name} fill sizes="48px" className="object-cover" />
+            </button>
+            <Dialog open={open} onOpenChange={setOpen}>
+                <DialogContent className="max-w-xl">
+                    <DialogHeader>
+                        <DialogTitle>이미지 크게 보기</DialogTitle>
+                        <DialogDescription>{order.product.name}</DialogDescription>
+                    </DialogHeader>
+                    <div className="relative aspect-square overflow-hidden rounded-md border bg-white">
+                        <Image src={order.product.thumbnail} alt={order.product.name} fill sizes="560px" className="object-contain" />
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={copyImage}>
+                            이미지 복사
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
+    );
+}
+
+function ProductInfoCell({ order }: { order: Order }) {
+    return (
+        <div className="flex min-w-0 items-start gap-2.5">
+            <ProductImageDialog order={order} />
+            <div className="min-w-0 space-y-1">
+                {order.product.marketLink ? (
+                    <a className="line-clamp-2 text-[13px] font-semibold leading-4 text-slate-900 hover:text-sky-700 hover:underline" href={order.product.marketLink} target="_blank" rel="noopener noreferrer">
+                        {order.product.name}
+                        <ExternalLink className="ml-1 inline h-3 w-3" />
+                    </a>
+                ) : (
+                    <div className="line-clamp-2 text-[13px] font-semibold leading-4 text-slate-900">{order.product.name}</div>
+                )}
+                <div className="line-clamp-1 text-xs text-slate-500">{order.product.optionName}</div>
+                <div className="text-[11px] font-medium text-slate-500">수량 {order.product.quantity}</div>
+                <div className="inline-flex max-w-full items-center gap-1 rounded bg-slate-50 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">
+                    <span className="shrink-0">마켓 주문번호 :</span>
+                    <span className="truncate font-mono">{order.marketOrderId}</span>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function MarketAccountCell({ order }: { order: Order }) {
+    return (
+        <div className="space-y-0.5">
+            <div className="inline-flex rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-700">{MARKET_LABELS[order.marketType]}</div>
+            <div className="line-clamp-2 text-xs leading-4 text-slate-600">{order.storeName}</div>
+        </div>
+    );
+}
+
+function OrderDateCell({ value }: { value: string }) {
+    const [date, time] = value.split(" ");
+
+    return (
+        <div className="space-y-0.5 text-xs tabular-nums">
+            <div className="font-medium text-slate-800">{date}</div>
+            <div className="font-mono text-[11px] text-slate-500">{time ?? "-"}</div>
+        </div>
+    );
+}
+
+function SourcingLifeInfoCell({ order }: { order: Order }) {
+    if (!order.sourcingLifeOrderId) return <div className="font-mono text-xs font-semibold text-slate-900">-</div>;
+
+    const orderUrl = `https://www.sourcinglife.co.kr/orders/${encodeURIComponent(order.sourcingLifeOrderId)}`;
+
+    return (
+        <a
+            className="font-mono text-xs font-semibold text-sky-700 underline-offset-2 hover:underline"
+            href={orderUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+        >
+            {order.sourcingLifeOrderId}
+        </a>
+    );
+}
+
+function DeliveryInfoCell({ order, actions }: { order: Order; actions: OrderColumnActions }) {
+    const customs = customsState(order.recipient.personalCustomsCode);
+    const [open, setOpen] = useState(false);
+    const [name, setName] = useState(order.recipient.name);
+    const [phone, setPhone] = useState(order.recipient.phone);
+    const [zipCode, setZipCode] = useState(order.recipient.zipCode ?? "");
+    const [address, setAddress] = useState(order.recipient.address);
+    const [detailAddress, setDetailAddress] = useState(order.recipient.detailAddress ?? "");
+    const [deliveryMessage, setDeliveryMessage] = useState(order.recipient.deliveryMessage ?? "");
+    const [customsCode, setCustomsCode] = useState(order.recipient.personalCustomsCode ?? "");
+    const normalizedCode = customsCode.trim().toUpperCase();
+    const editorCustoms = customsState(normalizedCode);
+    const canSave = Boolean(name.trim() && phone.trim() && address.trim() && /^P\d{12}$/.test(normalizedCode));
+
+    const openEditor = () => {
+        setName(order.recipient.name);
+        setPhone(order.recipient.phone);
+        setZipCode(order.recipient.zipCode ?? "");
+        setAddress(order.recipient.address);
+        setDetailAddress(order.recipient.detailAddress ?? "");
+        setDeliveryMessage(order.recipient.deliveryMessage ?? "");
+        setCustomsCode(order.recipient.personalCustomsCode ?? "");
+        setOpen(true);
+    };
+
+    const saveRecipientInfo = () => {
+        if (!canSave) {
+            toast.info("수령인, 연락처, 주소, 개인통관부호를 확인하세요.");
+            return;
+        }
+
+        actions.onSaveRecipientInfo(order, {
+            name: name.trim(),
+            phone: phone.trim(),
+            zipCode: zipCode.trim() || undefined,
+            address: address.trim(),
+            detailAddress: detailAddress.trim() || undefined,
+            deliveryMessage: deliveryMessage.trim() || undefined,
+            personalCustomsCode: normalizedCode,
+        });
+        setOpen(false);
+    };
+
+    return (
+        <div className="space-y-1 text-xs">
+            <div className="font-semibold text-slate-900">{order.recipient.name}</div>
+            <div className="font-mono text-[11px] text-slate-500">{order.recipient.phone}</div>
+            <div className="line-clamp-1 leading-4 text-slate-600">{[order.recipient.zipCode, order.recipient.address, order.recipient.detailAddress].filter(Boolean).join(" ")}</div>
+            <div className="flex min-w-0 items-center gap-1.5 border-t border-slate-100 pt-1">
+                <span className="truncate font-mono text-[11px] text-slate-700">{order.recipient.personalCustomsCode ?? "-"}</span>
+                <Badge
+                    variant="outline"
+                    className={cn(
+                        "shrink-0 text-[10px]",
+                        customs === "확인완료"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : "border-amber-200 bg-amber-50 text-amber-700",
                     )}
-                </Button>
-            );
-        },
-    },
-    {
-        id: "actions",
-        header: "작업",
-        cell: ({ row }) => {
-            const status = row.original.status;
-            const marketType = row.original.marketType;
-
-            // 1. 신규 주문 Actions
-            if (status === '신규 주문') {
-                return (
-                    <div className="flex flex-col gap-1 w-full max-w-[150px]">
-                        <Button
-                            className="h-8 text-[11px] w-full bg-[#18181b] text-white hover:bg-zinc-800 rounded-md shadow-sm"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                window.dispatchEvent(new CustomEvent('action-tracking-input', { detail: row.original }));
-                            }}
-                        >
-                            발주 확인하기
-                        </Button>
-                        <Button
-                            variant="outline"
-                            className="h-8 text-[11px] w-full bg-white hover:bg-zinc-50 border-zinc-200 text-zinc-700 rounded-md"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                window.dispatchEvent(new CustomEvent('action-review-margin', { detail: row.original }));
-                            }}
-                        >
-                            마진 검토하기
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            className="h-8 text-[11px] w-full text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                window.dispatchEvent(new CustomEvent('action-cancel-order', { detail: row.original }));
-                            }}
-                        >
-                            주문 취소하기
-                        </Button>
-                    </div>
-                );
-            }
-
-            // 2. 발송 대기 Actions
-            if (ORDER_STATUSES.WAITING.includes(status)) {
-                return (
-                    <div className="flex flex-col gap-1 w-full max-w-[150px]">
-                        <Button
-                            className="h-8 text-[11px] w-full bg-[#18181b] text-white hover:bg-zinc-800"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                window.dispatchEvent(new CustomEvent('action-register-invoice', { detail: row.original }));
-                            }}
-                        >
-                            직접전달 처리하기
-                        </Button>
-                        <Button
-                            className="h-8 text-[11px] w-full bg-[#18181b] text-white hover:bg-zinc-800 rounded-md shadow-sm"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                window.dispatchEvent(new CustomEvent('action-pay-sourcing', { detail: row.original }));
-                            }}
-                        >
-                            결제하기
-                        </Button>
-                    </div>
-                );
-            }
-
-            // 3. 배송중 / 배송완료 등 Actions (Shipping Menu Focus)
-            const shippingStatuses = ['배송중', '국내 배송중', '배송 완료', '현지 배송중', '통관중', '국내 입항', '출고 완료', '출고 준비'];
-
-            if (shippingStatuses.some(s => status.includes(s)) || (status as string) === '배송 중') {
-                return (
-                    <div className="flex flex-col gap-1 w-full max-w-[140px]">
-                        {status === '국내 배송중' && (
-                            <Button
-                                className="h-7 text-[10px] w-full bg-[#18181b] hover:bg-zinc-800 text-white rounded-md shadow-sm flex items-center justify-center"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    window.dispatchEvent(new CustomEvent('action-check-tracking', { detail: row.original }));
-                                }}
-                            >
-                                국내 송장 확인
-                            </Button>
-                        )}
-
-                        <Button
-                            variant="outline"
-                            className="h-7 text-[10px] w-full bg-white hover:bg-zinc-50 border-zinc-200 text-zinc-700 rounded-md"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                window.dispatchEvent(new CustomEvent('action-add-sourcing', { detail: row.original }));
-                            }}
-                        >
-                            추가 소싱하기
-                        </Button>
-                    </div>
-                );
-            }
-
-            // Default
-            return (
-                <div className="text-xs text-muted-foreground text-center">-</div>
-            );
-        },
-    },
-    {
-        accessorKey: "orderDate",
-        header: "주문일시",
-        cell: ({ row }) => {
-            const dateStr = row.original.orderDate; // e.g., "2024-03-21 14:30"
-            const [date, time] = dateStr.includes(' ') ? dateStr.split(' ') : [dateStr, ''];
-            const orderDateTime = new Date(dateStr.replace(/-/g, '/')); // For Safari compatibility
-
-            return (
-                <div className="flex flex-col text-xs text-muted-foreground whitespace-nowrap">
-                    <span className="font-medium text-foreground">{date}</span>
-                    <div className="flex items-center gap-1">
-                        <span>{time}</span>
-                        {orderDateTime && !isNaN(orderDateTime.getTime()) && (
-                            <span className="text-[10px] opacity-70">({formatDistanceToNow(orderDateTime, { addSuffix: true, locale: ko })})</span>
-                        )}
-                    </div>
-                </div>
-            );
-        },
-    },
-    {
-        accessorKey: "product",
-        header: "상품정보",
-        cell: ({ row }) => {
-            const product = row.original.product;
-            return (
-                <div className="flex flex-col gap-1 py-1">
-                    <div className="flex items-center gap-3 min-w-[300px]">
-                        <div className="relative h-12 w-12 flex-shrink-0 rounded bg-white border border-gray-100 overflow-hidden">
-                            <Image src={product.thumbnail} alt={product.name} fill sizes="48px" className="object-cover" />
-                            {product.isAiOption && (
-                                <div className="absolute bottom-0 left-0 right-0 bg-blue-600/90 text-[7px] text-white text-center py-0.5 leading-none">
-                                    AI 옵션 이미지
-                                </div>
-                            )}
-                        </div>
-                        <div className="flex flex-col gap-0.5 overflow-hidden">
-                            <a href={product.marketLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 group">
-                                <span className="text-[13px] font-medium leading-tight line-clamp-2 group-hover:text-indigo-600 transition-colors" title={product.name}>
-                                    {product.name}
-                                </span>
-                                {product.marketLink && (
-                                    <ExternalLink className="h-3 w-3 text-slate-300 group-hover:text-indigo-400 transition-colors shrink-0" />
-                                )}
-                            </a>
-                            <div className="text-[11px] text-slate-400 mt-0.5">
-                                {product.optionName}
-                            </div>
-                        </div>
-                    </div>
-                    <div className="text-[10px] text-slate-400 ml-[60px]">
-                        마켓 주문번호: {row.original.marketOrderId}
-                    </div>
-                </div>
-            );
-        },
-    },
-    {
-        accessorKey: "status",
-        header: "처리상태",
-        cell: ({ row }) => {
-            const status = row.original.status;
-            return (
-                <Badge variant="outline" className={cn("whitespace-nowrap border font-medium", getStatusColorClass(status))}>
-                    {status}
+                >
+                    {customs}
                 </Badge>
-            );
-        },
-    },
-
-    {
-        accessorKey: "recipient",
-        header: "수령자",
-        cell: ({ row }) => {
-            const recipient = row.original.recipient;
-            const isPccMissing = !recipient.pccc || recipient.pccc.length < 12;
-
-            return (
-                <div className="flex flex-col text-sm gap-0.5 min-w-[120px]">
-                    <div className="font-medium whitespace-nowrap text-slate-900">
-                        {recipient.name}
-                    </div>
-                    <span className="text-xs text-slate-400 whitespace-nowrap font-mono">{recipient.phone}</span>
-                    <div
-                        className="mt-1 flex items-center gap-1 cursor-pointer group/pccc"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            window.dispatchEvent(new CustomEvent('action-pccc-info', { detail: row.original }));
-                        }}
-                    >
-                        {isPccMissing ? (
-                            <div className="flex items-center gap-1 bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full text-[10px] border border-red-100 font-medium group-hover/pccc:bg-red-100 transition-colors">
-                                <AlertCircle className="h-3 w-3" />
-                                <span>통관부호 요청</span>
-                            </div>
-                        ) : (
-                            <div className="flex items-center gap-1 bg-green-50 text-green-600 px-1.5 py-0.5 rounded-full text-[10px] border border-green-100 font-medium group-hover/pccc:bg-green-100 transition-colors">
-                                <CheckCircle2 className="h-3 w-3 fill-green-600 text-white" />
-                                <span>통관부호 확인</span>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            );
-        },
-    },
-    {
-        accessorKey: "paymentPrice",
-        header: "결제가격/마진",
-        cell: ({ row }) => {
-            const price = row.original.paymentPrice;
-            const settlement = row.original.expectedSettlement;
-
-            // Mock calculations based on benchmark style
-            const marginRate = price > 0 ? ((settlement - (price * 0.7)) / price) * 100 : 34.4;
-            const minMargin = marginRate;
-            const maxMargin = marginRate + 28.0; // Mocking a range
-            const isNegative = marginRate < 0;
-
-            return (
-                <div className="flex flex-col text-xs gap-0.5 whitespace-nowrap">
-                    <div className="font-bold text-sm text-slate-900">
-                        {new Intl.NumberFormat('ko-KR').format(price)}원
-                    </div>
-                    <div className={cn(
-                        "text-[10px] font-medium flex items-center gap-1",
-                        isNegative ? "text-red-500" : "text-green-600"
-                    )}>
-                        예상: {isNegative ? "-" : "+"}{Math.abs(marginRate).toFixed(1)}%
-                    </div>
-                    <div className="text-[9px] text-slate-400">
-                        범위: +{minMargin.toFixed(0)}% ~ +{maxMargin.toFixed(0)}%
-                    </div>
-                </div>
-            );
-        },
-    },
-    {
-        accessorKey: "marketType",
-        header: "마켓",
-        cell: ({ row }) => {
-            const marketType = row.original.marketType;
-            const storeName = row.original.storeName;
-
-            return (
-                <div className="flex items-center gap-1.5 whitespace-nowrap">
-                    {getMarketIcon(marketType)}
-                    <span className="text-[10px] text-slate-500 font-medium">{storeName}</span>
-                </div>
-            );
-        },
-    },
-    {
-        accessorKey: "memo",
-        header: "메모",
-        cell: ({ row }) => {
-            const memo = row.original.internalMemo;
-            return (
-                <TooltipProvider>
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <div className="flex items-center gap-1.5 cursor-help w-[100px]">
-                                <StickyNote
-                                    className={cn(
-                                        "h-3.5 w-3.5 transition-colors shrink-0",
-                                        memo ? "text-blue-500 fill-blue-50" : "text-slate-200"
-                                    )}
-                                />
-                                {memo ? (
-                                    <span className="text-[11px] text-slate-600 truncate leading-relaxed">
-                                        {memo}
-                                    </span>
-                                ) : (
-                                    <span className="text-[11px] text-slate-300 italic">메모 없음</span>
+                <Button size="sm" variant="outline" className="ml-auto h-6 shrink-0 border-slate-200 bg-white px-2 text-[11px] shadow-none" onClick={openEditor}>
+                    배송정보 수정
+                </Button>
+            </div>
+            <Dialog open={open} onOpenChange={setOpen}>
+                <DialogContent className="max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle>배송정보 수정</DialogTitle>
+                        <DialogDescription>수령인 배송정보와 개인통관부호를 함께 수정합니다.</DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-3">
+                        <div className="grid grid-cols-2 gap-2">
+                            <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="수령인명" />
+                            <Input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="수령인 연락처" />
+                        </div>
+                        <Input value={zipCode} onChange={(event) => setZipCode(event.target.value)} placeholder="우편번호" />
+                        <Input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="주소" />
+                        <Input value={detailAddress} onChange={(event) => setDetailAddress(event.target.value)} placeholder="상세주소" />
+                        <Input value={deliveryMessage} onChange={(event) => setDeliveryMessage(event.target.value)} placeholder="배송메시지" />
+                        <Input
+                            value={customsCode}
+                            onChange={(event) => setCustomsCode(event.target.value.toUpperCase())}
+                            placeholder="개인통관부호 P123456789012"
+                            className="font-mono"
+                        />
+                        <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                            <div className="text-xs text-slate-600">개인통관부호 상태</div>
+                            <Badge
+                                variant="outline"
+                                className={cn(
+                                    "text-[11px]",
+                                    editorCustoms === "확인완료"
+                                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                        : "border-amber-200 bg-amber-50 text-amber-700",
                                 )}
+                            >
+                                {editorCustoms}
+                            </Badge>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setOpen(false)}>취소</Button>
+                        <Button disabled={!canSave} onClick={saveRecipientInfo}>저장</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </div>
+    );
+}
+
+function ClaimActionDialog({ order, actions, variant = "cell" }: { order: Order; actions: OrderColumnActions; variant?: "cell" | "footer" }) {
+    const [open, setOpen] = useState(false);
+    const isCancelClaim = order.claimType === "CANCEL";
+    const isProcessed = isCancelClaimProcessed(order);
+    const rows = [
+        ["클레임 유형", order.claimType === "CANCEL" ? "취소" : order.claimType === "RETURN" ? "반품" : order.claimType === "EXCHANGE" ? "교환" : "-"],
+        ["클레임 상태", order.claimStatus ?? "-"],
+        ["클레임 사유", order.claimReason ?? "-"],
+        ["클레임 접수일시", order.claimRequestedAt ?? "-"],
+        ["처리완료일시", order.claimProcessedAt ?? "-"],
+        ["현재 진행단계", ORDER_STATUS_LABELS[progressStatus(order)]],
+        ["소싱라이프 주문번호", order.sourcingLifeOrderId ?? "-"],
+        ["소싱상태", SOURCING_LIFE_STATUS_LABELS[order.sourcingLifeSyncStatus]],
+        ["국내송장", order.domesticInvoice ? `${order.domesticInvoice.carrier} ${order.domesticInvoice.trackingNumber}` : "-"],
+    ];
+
+    const approveCancel = () => {
+        actions.onApproveCancelClaim(order);
+        setOpen(false);
+    };
+
+    const rejectCancel = () => {
+        actions.onRejectCancelClaim(order);
+        setOpen(false);
+    };
+
+    return (
+        <>
+            <Button
+                size={variant === "cell" ? "sm" : "default"}
+                variant="default"
+                className={cn(variant === "cell" && "h-8 w-full whitespace-nowrap")}
+                onClick={() => setOpen(true)}
+            >
+                {claimActionLabel(order)}
+            </Button>
+            <Dialog open={open} onOpenChange={setOpen}>
+                <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>{claimActionLabel(order)}</DialogTitle>
+                        <DialogDescription>
+                            {order.marketOrderId} · {MARKET_LABELS[order.marketType]} · {order.storeName}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                        {rows.map(([label, value]) => (
+                            <div key={label} className="rounded-md border bg-slate-50 px-3 py-2 text-sm">
+                                <div className="text-xs text-slate-500">{label}</div>
+                                <div className="mt-1 break-words font-medium text-slate-900">{value}</div>
                             </div>
-                        </TooltipTrigger>
-                        {memo && (
-                            <TooltipContent side="left" className="max-w-[250px] break-all">
-                                <p className="text-[11px] leading-relaxed">{memo}</p>
-                            </TooltipContent>
+                        ))}
+                    </div>
+                    {isCancelClaim ? (
+                        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                            현재 진행단계와 소싱라이프 결제/송장 여부를 확인한 뒤 취소승인 또는 취소거부를 선택해 마켓에 전송합니다.
+                        </div>
+                    ) : (
+                        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                            현재 진행단계와 주문 정보를 확인합니다. 반품/교환의 승인, 회수, 재발송 처리는 다음 클레임 처리 단계에서 확장합니다.
+                        </div>
+                    )}
+                    <DialogFooter>
+                        {isCancelClaim && isProcessed && (
+                            <Badge variant="outline" className="mr-auto border-emerald-200 bg-emerald-50 text-emerald-700">
+                                처리완료
+                            </Badge>
                         )}
-                    </Tooltip>
-                </TooltipProvider>
-            );
+                        {isCancelClaim && !isProcessed && (
+                            <>
+                                <Button variant="outline" onClick={rejectCancel}>
+                                    취소거부
+                                </Button>
+                                <Button onClick={approveCancel}>
+                                    취소승인
+                                </Button>
+                            </>
+                        )}
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
+    );
+}
+
+function InvoiceInlineInput({
+    order,
+    carrier,
+    trackingNumber,
+    onCarrierChange,
+    onTrackingNumberChange,
+    onSaveInvoice,
+}: {
+    order: Order;
+    carrier: string;
+    trackingNumber: string;
+    onCarrierChange: (carrier: string) => void;
+    onTrackingNumberChange: (trackingNumber: string) => void;
+    onSaveInvoice: OrderColumnActions["onSaveInvoice"];
+}) {
+    const lastSavedRef = useRef(`${order.domesticInvoice?.carrier ?? ""}:${order.domesticInvoice?.trackingNumber ?? ""}`);
+    const canEdit = order.status === "READY_TO_SHIP" || (order.status === "SHIPPING" && order.marketType === "coupang");
+    const shouldAutoSave = order.status === "READY_TO_SHIP";
+
+    const saveIfReady = (nextCarrier = carrier, nextTrackingNumber = trackingNumber) => {
+        const normalizedTrackingNumber = nextTrackingNumber.trim();
+        const nextSavedKey = `${nextCarrier}:${normalizedTrackingNumber}`;
+
+        if (!shouldAutoSave || !normalizedTrackingNumber || lastSavedRef.current === nextSavedKey) return;
+
+        lastSavedRef.current = nextSavedKey;
+        onSaveInvoice(order, nextCarrier, normalizedTrackingNumber);
+    };
+
+    if (!canEdit) {
+        return (
+            <div className="text-xs">
+                <div className="font-semibold text-slate-900">{order.domesticInvoice?.carrier || "-"}</div>
+                <div className="mt-0.5 font-mono text-sky-700">{order.domesticInvoice?.trackingNumber || "-"}</div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex flex-col gap-1.5">
+            <Select
+                value={carrier}
+                onValueChange={(nextCarrier) => {
+                    onCarrierChange(nextCarrier);
+                    saveIfReady(nextCarrier, trackingNumber);
+                }}
+            >
+                <SelectTrigger className="h-6 w-full px-2 text-[11px]">
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="CJ대한통운">CJ대한통운</SelectItem>
+                    <SelectItem value="롯데택배">롯데택배</SelectItem>
+                    <SelectItem value="한진택배">한진택배</SelectItem>
+                    <SelectItem value="우체국택배">우체국택배</SelectItem>
+                </SelectContent>
+            </Select>
+            <Input
+                value={trackingNumber}
+                onChange={(event) => onTrackingNumberChange(event.target.value.replace(/\D/g, ""))}
+                onBlur={() => saveIfReady()}
+                onKeyDown={(event) => {
+                    if (event.key === "Enter") saveIfReady();
+                }}
+                placeholder="국내송장번호"
+                inputMode="numeric"
+                className="h-6 w-full px-2 font-mono text-[11px]"
+            />
+        </div>
+    );
+}
+
+function InvoiceActionsCell({ order, actions }: { order: Order; actions: OrderColumnActions }) {
+    const invoiceKey = `${order.domesticInvoice?.carrier ?? ""}:${order.domesticInvoice?.trackingNumber ?? ""}`;
+    const [syncedInvoiceKey, setSyncedInvoiceKey] = useState(invoiceKey);
+    const [carrier, setCarrier] = useState(order.domesticInvoice?.carrier || "CJ대한통운");
+    const [trackingNumber, setTrackingNumber] = useState(order.domesticInvoice?.trackingNumber || "");
+    const canSendInvoice = order.status === "READY_TO_SHIP" && Boolean(trackingNumber.trim());
+    const canUpdateShippingInvoice = order.status === "SHIPPING" && order.marketType === "coupang" && Boolean(trackingNumber.trim());
+
+    if (syncedInvoiceKey !== invoiceKey) {
+        setSyncedInvoiceKey(invoiceKey);
+        setCarrier(order.domesticInvoice?.carrier || "CJ대한통운");
+        setTrackingNumber(order.domesticInvoice?.trackingNumber || "");
+    }
+
+    return (
+        <div className="space-y-2">
+            <InvoiceInlineInput
+                order={order}
+                carrier={carrier}
+                trackingNumber={trackingNumber}
+                onCarrierChange={setCarrier}
+                onTrackingNumberChange={setTrackingNumber}
+                onSaveInvoice={actions.onSaveInvoice}
+            />
+            {order.status === "READY_TO_SHIP" ? (
+                <Button
+                    size="sm"
+                    className="h-6 w-full bg-sky-600 px-2 text-[11px] hover:bg-sky-700"
+                    disabled={!canSendInvoice}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => actions.onSendInvoice(order, carrier, trackingNumber)}
+                >
+                    배송중 처리
+                </Button>
+            ) : null}
+            {order.status === "SHIPPING" && order.marketType === "coupang" ? (
+                <Button
+                    size="sm"
+                    className="h-6 w-full bg-sky-600 px-2 text-[11px] hover:bg-sky-700"
+                    disabled={!canUpdateShippingInvoice}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => actions.onUpdateShippingInvoice(order, carrier, trackingNumber)}
+                >
+                    송장수정
+                </Button>
+            ) : null}
+        </div>
+    );
+}
+
+function SourcingButton({ order, actions }: { order: Order; actions: OrderColumnActions }) {
+    const [open, setOpen] = useState(false);
+    const enabled = order.status === "NEW" || order.status === "PREPARING";
+
+    return (
+        <>
+            <Button size="sm" variant={enabled ? "default" : "ghost"} className="h-6 w-full whitespace-nowrap px-2 text-[11px] shadow-sm" disabled={!enabled} onClick={() => setOpen(true)}>
+                소싱하기
+            </Button>
+            <SourcingWorkflowDialog
+                order={order}
+                open={open}
+                mode={order.status === "NEW" ? "match-only" : "payment"}
+                onOpenChange={setOpen}
+                onConfirmMatch={order.status === "NEW" ? actions.onSourcingAndAcceptOrder : actions.onSaveSourcingMatch}
+                onCompletePayment={actions.onCompleteSourcingPayment}
+            />
+        </>
+    );
+}
+
+function ManualPurchaseButton({ order, actions }: { order: Order; actions: OrderColumnActions }) {
+    const [open, setOpen] = useState(false);
+    const [carrier, setCarrier] = useState("CJ대한통운");
+    const [trackingNumber, setTrackingNumber] = useState("");
+    const normalizedTrackingNumber = trackingNumber.trim();
+    const hasInvoice = Boolean(normalizedTrackingNumber);
+
+    const completeWithoutInvoice = () => {
+        actions.onCompleteManualPurchase(order);
+        setOpen(false);
+    };
+
+    const completeWithInvoice = (sendNow: boolean) => {
+        if (!hasInvoice) {
+            toast.info("국내송장번호를 입력하세요.");
+            return;
+        }
+
+        actions.onCompleteManualPurchase(order, { carrier, trackingNumber: normalizedTrackingNumber }, sendNow);
+        setOpen(false);
+    };
+
+    return (
+        <>
+            <Button size="sm" variant="outline" className="h-6 w-full whitespace-nowrap border-slate-200 bg-white px-2 text-[11px] shadow-none hover:border-sky-200 hover:bg-sky-50" onClick={() => setOpen(true)}>
+                수동구매 완료
+            </Button>
+            <Dialog open={open} onOpenChange={setOpen}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>수동구매 완료</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-3">
+                        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                            <div className="font-medium text-slate-900">{order.product.name}</div>
+                            <div className="mt-1 text-xs text-slate-500">{order.marketOrderId}</div>
+                        </div>
+                        <Select value={carrier} onValueChange={setCarrier}>
+                            <SelectTrigger className="h-9">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="CJ대한통운">CJ대한통운</SelectItem>
+                                <SelectItem value="롯데택배">롯데택배</SelectItem>
+                                <SelectItem value="한진택배">한진택배</SelectItem>
+                                <SelectItem value="우체국택배">우체국택배</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <Input
+                            value={trackingNumber}
+                            onChange={(event) => setTrackingNumber(event.target.value.replace(/\D/g, ""))}
+                            placeholder="국내송장번호"
+                            inputMode="numeric"
+                            className="font-mono"
+                        />
+                    </div>
+                    <DialogFooter className="gap-2 sm:flex-col sm:justify-start">
+                        <Button variant="outline" className="w-full justify-center border-slate-200 bg-white shadow-none" onClick={completeWithoutInvoice}>
+                            발송대기로 이동
+                        </Button>
+                        <Button variant="outline" className="w-full justify-center border-slate-200 bg-white shadow-none" disabled={!hasInvoice} onClick={() => completeWithInvoice(false)}>
+                            송장 저장 후 발송대기
+                        </Button>
+                        <Button className="w-full justify-center bg-sky-600 shadow-sm hover:bg-sky-700" disabled={!hasInvoice} onClick={() => completeWithInvoice(true)}>
+                            배송중 처리
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
+    );
+}
+
+function ProcessActionsCell({ order, actions }: { order: Order; actions: OrderColumnActions }) {
+    const canAccept = order.status === "NEW";
+    const canSource = order.status === "NEW" || order.status === "PREPARING";
+    const canCompleteManualPurchase = order.status === "PREPARING";
+    const canCancel = order.status === "NEW" || order.status === "PREPARING" || order.status === "READY_TO_SHIP";
+
+    if (order.status === "CLAIM") {
+        return <ClaimActionDialog order={order} actions={actions} />;
+    }
+
+    if (!canAccept && !canSource && !canCompleteManualPurchase && !canCancel) {
+        return <span className="text-xs text-slate-400">-</span>;
+    }
+
+    return (
+        <div className="flex flex-col items-stretch gap-1">
+            {canAccept && (
+                <Button size="sm" className="h-6 w-full whitespace-nowrap px-2 text-[11px] shadow-sm" onClick={() => actions.onAcceptOrder(order)}>
+                    주문확인
+                </Button>
+            )}
+            {canSource && <SourcingButton order={order} actions={actions} />}
+            {canCompleteManualPurchase && <ManualPurchaseButton order={order} actions={actions} />}
+            {canCancel && (
+                <Button size="sm" variant="ghost" className="h-6 w-full px-2 text-[11px] text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => actions.onCancelOrder(order)}>
+                    주문취소
+                </Button>
+            )}
+        </div>
+    );
+}
+
+export function createColumns(actions: OrderColumnActions): ColumnDef<Order>[] {
+    const columns: ColumnDef<Order>[] = [
+        {
+            id: "select",
+            header: ({ table }) => (
+                <Checkbox checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")} onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)} aria-label="전체 선택" />
+            ),
+            cell: ({ row }) => (
+                <Checkbox checked={row.getIsSelected()} onCheckedChange={(value) => row.toggleSelected(!!value)} aria-label="주문 선택" />
+            ),
+            enableSorting: false,
+            enableHiding: false,
         },
-    },
-];
+        { id: "process", header: "처리하기", cell: ({ row }) => <ProcessActionsCell order={row.original} actions={actions} /> },
+        {
+            accessorKey: "status",
+            header: "주문상태",
+            cell: ({ row }) => <OrderStatusCell order={row.original} />,
+        },
+        { accessorKey: "orderDate", header: "주문일시", cell: ({ row }) => <OrderDateCell value={row.original.orderDate} /> },
+        { id: "productInfo", header: "상품정보", cell: ({ row }) => <ProductInfoCell order={row.original} /> },
+        { id: "invoice", header: "송장", cell: ({ row }) => <InvoiceActionsCell order={row.original} actions={actions} /> },
+        { id: "deliveryInfo", header: "배송정보", cell: ({ row }) => <DeliveryInfoCell order={row.original} actions={actions} /> },
+        { id: "marketAccount", header: "판매처", cell: ({ row }) => <MarketAccountCell order={row.original} /> },
+        { id: "sourcingLifeInfo", header: "소싱라이프", cell: ({ row }) => <SourcingLifeInfoCell order={row.original} /> },
+    ];
+
+    return columns;
+}

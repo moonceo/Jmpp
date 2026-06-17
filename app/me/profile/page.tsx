@@ -1,12 +1,12 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { User, Shield, LogOut, Mail, Clock } from "lucide-react";
+import { User, Shield, Mail } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -41,9 +41,6 @@ export default function ProfilePage() {
                             <User className="h-5 w-5" />
                             계정 정보
                         </CardTitle>
-                        <CardDescription>
-                            현재 로그인된 관리자 계정 정보입니다.
-                        </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6">
                         <div className="flex items-center gap-4 p-4 border rounded-lg bg-slate-50 dark:bg-slate-900">
@@ -56,14 +53,6 @@ export default function ProfilePage() {
                                     <Mail className="h-3 w-3" />
                                     moon@jumunpangpang.com
                                 </div>
-                            </div>
-                        </div>
-
-                        <div className="grid gap-2">
-                            <Label>마지막 로그인</Label>
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/40 p-2 rounded">
-                                <Clock className="h-3 w-3" />
-                                2024-01-23 17:30:45 (IP: 192.168.0.1)
                             </div>
                         </div>
                     </CardContent>
@@ -125,7 +114,6 @@ export default function ProfilePage() {
                                 <p className="text-sm text-muted-foreground">현재 기기에서 계정 연결을 종료합니다.</p>
                             </div>
                             <Button variant="ghost" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={handleLogout}>
-                                <LogOut className="h-4 w-4 mr-2" />
                                 로그아웃
                             </Button>
                         </div>

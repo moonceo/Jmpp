@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>이미지 크게 보기 와이어프레임</title>
+  <style>
+    :root{--bg:#f4f6f8;--paper:#fff;--line:#dfe3e8;--soft:#f8fafc;--text:#1c252e;--muted:#637381;--primary:#1976d2;--primary-soft:#e3f2fd;--success:#2e7d32;--success-soft:#e8f5e9;--shadow:0 24px 70px rgba(16,24,40,.20)}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,"Pretendard","Apple SD Gothic Neo","Malgun Gothic",Arial,sans-serif;font-size:14px}.overlay{min-height:100vh;padding:28px;display:grid;place-items:center}.viewer{width:min(1080px,100%);height:min(760px,calc(100vh - 56px));background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);display:grid;grid-template-rows:auto 1fr auto;overflow:hidden}.head{height:64px;border-bottom:1px solid var(--line);padding:0 20px;display:flex;justify-content:space-between;align-items:center}.head h1{margin:0;font-size:22px}.button{height:36px;border:1px solid var(--line);border-radius:6px;background:#fff;padding:0 12px;font-weight:800;color:var(--text)}.button.primary{border-color:var(--primary);background:var(--primary);color:#fff}.body{min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 300px;background:var(--soft)}.preview{min-width:0;padding:18px;display:grid;grid-template-rows:1fr auto;gap:12px}.canvas{border:1px solid var(--line);border-radius:8px;background:#fff;display:grid;place-items:center;overflow:hidden}.image{width:min(560px,80%);aspect-ratio:4/3;border-radius:10px;border:1px solid #cfd7df;background:radial-gradient(circle at 25% 25%,#ffd54f 0 14%,transparent 15%),radial-gradient(circle at 50% 35%,#fbc02d 0 16%,transparent 17%),radial-gradient(circle at 70% 55%,#f9a825 0 14%,transparent 15%),linear-gradient(135deg,#fff8e1,#ffe082);box-shadow:0 10px 28px rgba(16,24,40,.12)}.tools{display:flex;justify-content:space-between;align-items:center;gap:10px}.zoom{display:flex;gap:6px}.side{background:#fff;border-left:1px solid var(--line);padding:18px;display:flex;flex-direction:column;gap:12px}.card{border:1px solid var(--line);border-radius:8px;padding:14px}.card h2{margin:0 0 12px;font-size:15px}.row{display:grid;grid-template-columns:94px 1fr;gap:10px;margin:9px 0}.label{color:var(--muted);font-size:12px;font-weight:800}.value{font-weight:700}.status{height:24px;border-radius:999px;padding:0 8px;display:inline-flex;align-items:center;background:var(--success-soft);color:var(--success);font-size:12px;font-weight:800}.foot{height:64px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;padding:0 20px;background:#fff}.actions{display:flex;gap:8px}.muted{color:var(--muted)}.mono{font-family:"SFMono-Regular",Consolas,monospace;font-size:12px}
+    @media(max-width:860px){.viewer{height:auto}.body{grid-template-columns:1fr}.side{border-left:0;border-top:1px solid var(--line)}}
+  </style>
+</head>
+<body>
+  <div class="overlay">
+    <section class="viewer">
+      <header class="head">
+        <h1>이미지 크게 보기</h1>
+        <button class="button">닫기</button>
+      </header>
+
+      <main class="body">
+        <section class="preview">
+          <div class="canvas">
+            <div class="image" aria-label="상품 이미지 확대 영역"></div>
+          </div>
+          <div class="tools">
+            <div class="zoom"><button class="button">-</button><button class="button">100%</button><button class="button">+</button></div>
+            <span class="status">이미지 로드 완료</span>
+          </div>
+        </section>
+
+        <aside class="side">
+          <section class="card">
+            <h2>상품 요약</h2>
+            <div class="row"><div class="label">마켓</div><div class="value">네이버 스마트스토어</div></div>
+            <div class="row"><div class="label">연동 계정</div><div class="value">스마트스토어_생활용품</div></div>
+            <div class="row"><div class="label">상품명</div><div class="value">어린이 연습용 스펀지공 안전 보관 가방 포함</div></div>
+            <div class="row"><div class="label">옵션명</div><div class="value">9인치 화이트 야구공 12개</div></div>
+            <div class="row"><div class="label">주문번호</div><div class="value mono">N202606150001</div></div>
+          </section>
+          <section class="card">
+            <h2>복사 결과</h2>
+            <p class="muted">이미지 복사 성공 시 `이미지가 복사되었습니다.` 메시지를 표시합니다.</p>
+          </section>
+        </aside>
+      </main>
+
+      <footer class="foot">
+        <span class="muted">상품이미지 썸네일 클릭 시 표시되는 이미지 프리뷰어</span>
+        <div class="actions"><button class="button">닫기</button><button class="button primary">이미지 복사</button></div>
+      </footer>
+    </section>
+  </div>
+</body>
+</html>

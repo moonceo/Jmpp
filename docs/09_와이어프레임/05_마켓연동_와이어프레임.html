@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>마켓연동 와이어프레임</title>
+  <style>
+    :root{--bg:#f7f8fa;--paper:#fff;--line:#dfe3e8;--soft:#f8fafc;--text:#1c252e;--muted:#637381;--primary:#1976d2;--primary-soft:#e3f2fd;--success:#2e7d32;--success-soft:#e8f5e9;--warning:#ed6c02;--warning-soft:#fff4e5;--error:#d32f2f;--error-soft:#ffebee;--shadow:0 1px 2px rgba(16,24,40,.08),0 8px 24px rgba(16,24,40,.06)}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,"Pretendard","Apple SD Gothic Neo","Malgun Gothic",Arial,sans-serif;font-size:14px}.app{display:grid;grid-template-columns:260px minmax(0,1fr);min-height:100vh}.drawer{background:#fff;border-right:1px solid var(--line);padding:16px 12px}.brand{height:40px;display:flex;align-items:center;gap:10px;font-size:18px;font-weight:800}.mark{width:32px;height:32px;border-radius:8px;background:var(--primary);color:#fff;display:grid;place-items:center;font-size:13px}.nav-title{margin:18px 8px 8px;color:#919eab;font-size:12px;font-weight:800}.nav{min-height:36px;padding:8px 10px;border-radius:6px;font-weight:700}.nav.active{background:var(--primary-soft);color:var(--primary)}.main{min-width:0}.topbar{height:64px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 24px;position:sticky;top:0;z-index:10}.topbar h1{margin:0;font-size:22px}.caption{color:var(--muted);font-size:13px}.button{height:36px;border:1px solid var(--line);border-radius:6px;background:#fff;padding:0 12px;font-weight:800;color:var(--text);white-space:nowrap}.button.primary{border-color:var(--primary);background:var(--primary);color:#fff}.content{padding:20px 24px 28px;display:flex;flex-direction:column;gap:14px}.markets{display:grid;grid-template-columns:repeat(5,minmax(150px,1fr));gap:12px}.market-card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px;box-shadow:0 1px 1px rgba(16,24,40,.03)}.market-card strong{display:block;margin-bottom:8px}.pill{height:24px;border-radius:999px;padding:0 8px;display:inline-flex;align-items:center;background:var(--primary-soft);color:var(--primary);font-size:12px;font-weight:800}.pill.ready{background:var(--warning-soft);color:#9a4a00}.workspace{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px}.box{background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);overflow:hidden}.box-head{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:center}.box-head h2{margin:0;font-size:16px}.notice{padding:12px 16px;border-bottom:1px solid var(--line);background:var(--primary-soft);color:#0d47a1;font-weight:800}.table-wrap{overflow:auto}table{width:1280px;border-collapse:separate;border-spacing:0;font-size:13px}th,td{padding:10px 12px;border-bottom:1px solid #edf0f3;border-right:1px solid #f4f6f8;white-space:nowrap;text-align:left}th{background:#f4f6f8;color:#475467;font-size:12px;font-weight:800}.status{height:24px;border-radius:999px;padding:0 8px;display:inline-flex;align-items:center;font-size:12px;font-weight:800}.ok{background:var(--success-soft);color:var(--success)}.warn{background:var(--warning-soft);color:var(--warning)}.fail{background:var(--error-soft);color:var(--error)}.switch{width:42px;height:24px;border-radius:999px;background:#cfd7df;padding:3px}.switch.on{background:var(--primary)}.knob{width:18px;height:18px;border-radius:999px;background:#fff}.switch.on .knob{margin-left:18px}.form{padding:16px;display:grid;gap:12px}.field{display:grid;gap:6px}.field label{font-size:12px;color:var(--muted);font-weight:800}select,input{height:40px;border:1px solid #cfd7df;border-radius:6px;padding:0 11px;font:inherit;width:100%}.form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}.muted{color:var(--muted)}
+    @media(max-width:1100px){.app{grid-template-columns:1fr}.drawer{display:none}.markets{grid-template-columns:repeat(2,minmax(0,1fr))}.workspace{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="drawer">
+      <div class="brand"><div class="mark">JP</div>주문팡팡</div>
+      <div class="nav-title">주요 메뉴</div>
+      <div class="nav">대시보드</div>
+      <div class="nav">주문수집</div>
+      <div class="nav">문의관리</div>
+      <div class="nav">장부다운로드</div>
+      <div class="nav active">내정보</div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h1>마켓연동</h1>
+          <div class="caption">판매처별 연동 계정, 인증상태, 활성 여부, 마켓수수료율을 관리합니다.</div>
+        </div>
+        <button class="button primary">계정 추가</button>
+      </header>
+
+      <section class="content">
+        <div class="markets">
+          <div class="market-card"><strong>네이버 스마트스토어</strong><span class="pill">초기 활성</span><p class="caption">등록 2개</p></div>
+          <div class="market-card"><strong>쿠팡</strong><span class="pill">초기 활성</span><p class="caption">등록 1개</p></div>
+          <div class="market-card"><strong>11번가</strong><span class="pill ready">확장 예정</span><p class="caption">등록 가능</p></div>
+          <div class="market-card"><strong>지마켓</strong><span class="pill ready">확장 예정</span><p class="caption">등록 가능</p></div>
+          <div class="market-card"><strong>옥션</strong><span class="pill ready">확장 예정</span><p class="caption">등록 가능</p></div>
+        </div>
+
+        <div class="workspace">
+          <section class="box">
+            <div class="box-head">
+              <div><h2>연동 계정 목록</h2><div class="caption">같은 판매처 안에서도 여러 스토어 또는 판매자 계정을 등록할 수 있습니다.</div></div>
+              <button class="button">인증상태 새로고침</button>
+            </div>
+            <div class="notice">주문수집 대상은 활성화된 모든 연동 계정입니다. 특정 판매처 또는 특정 계정만 수집하는 버튼은 제공하지 않습니다.</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>마켓</th><th>스토어명</th><th>판매자 계정명</th><th>인증상태</th><th>활성</th><th>마지막 수집시각</th><th>수집 실패 여부</th><th>마켓수수료율</th><th>액션</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>네이버 스마트스토어</td><td>스마트스토어_생활용품</td><td>life_admin</td><td><span class="status ok">정상</span></td><td><div class="switch on"><div class="knob"></div></div></td><td>2026-06-15 09:40</td><td><span class="status ok">없음</span></td><td>3.5%</td><td><button class="button">수정</button></td></tr>
+                  <tr><td>네이버 스마트스토어</td><td>스마트스토어_키즈</td><td>kids_admin</td><td><span class="status warn">인증만료</span></td><td><div class="switch"><div class="knob"></div></div></td><td>2026-06-14 18:20</td><td><span class="status fail">있음</span></td><td>3.5%</td><td><button class="button">재인증</button></td></tr>
+                  <tr><td>쿠팡</td><td>쿠팡_생활A</td><td>coupang_life_a</td><td><span class="status ok">정상</span></td><td><div class="switch on"><div class="knob"></div></div></td><td>2026-06-15 09:41</td><td><span class="status ok">없음</span></td><td>10.8%</td><td><button class="button">수정</button></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <aside class="box">
+            <div class="box-head"><h2>계정 등록 / 수정</h2></div>
+            <div class="form">
+              <div class="field"><label>마켓</label><select><option>네이버 스마트스토어</option><option>쿠팡</option><option>11번가</option><option>지마켓</option><option>옥션</option></select></div>
+              <div class="field"><label>스토어명</label><input value="스마트스토어_생활용품"></div>
+              <div class="field"><label>판매자 계정명</label><input value="life_admin"></div>
+              <div class="field"><label>API 인증 정보</label><input value="인증 정보 입력 영역"></div>
+              <div class="field"><label>마켓수수료율</label><input value="3.5%"></div>
+              <div class="field"><label>활성 여부</label><select><option>활성</option><option>비활성</option></select></div>
+              <div class="form-actions"><button class="button">인증 확인</button><button class="button primary">등록</button></div>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

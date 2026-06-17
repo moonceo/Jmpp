@@ -1,78 +1,45 @@
-import { OrderStatus } from "@/types/order";
+import { ClaimType, OrderStatus, SourcingLifeSyncStatus } from "@/types/order";
 
 export const ORDER_STATUSES = {
-    ALL: [
-        "신규 주문",
-        "통관부호 수집중",
-        "소싱상품 선택대기",
-        "결제 대기",
-        "결제 완료",
-        "현지 발송 대기중",
-        "현지 배송중",
-        "입고 대기",
-        "오류입고",
-        "입고중",
-        "견적 완료",
-        "배송비 결제 완료",
-        "출고 준비",
-        "출고 완료",
-        "국내 입항",
-        "국내 배송중",
-        "배송 완료",
-        "구매 확정 대기",
-        "구매 확정",
-        "주문 취소됨",
-        "반품 완료",
-        "교환 완료",
-        "취소 요청",
-        "취소 처리중",
-        "취소 완료",
-        "취소 거부",
-        "반품 요청",
-        "반품 수거중",
-        "반품 수거 완료",
-        "반품 처리중",
-        "반품 거부",
-        "교환 요청",
-        "교환 수거중",
-        "교환 수거 완료",
-        "교환 처리중",
-        "교환 재배송중",
-        "교환 거부",
-        "알 수 없는 상태"
-    ] as string[],
-
-    NEW: ['신규 주문', '알 수 없는 상태'] as OrderStatus[],
-
-    WAITING: [
-        '통관부호 수집중',
-        '소싱상품 선택대기',
-        '결제 대기',
-        '결제 완료',
-        '알 수 없는 상태'
-    ] as OrderStatus[],
-
-    SHIPPING: [
-        '현지 발송 대기중',
-        '현지 배송중',
-        '입고 대기',
-        '오류입고',
-        '입고중',
-        '결제 대기',
-        '견적 완료',
-        '배송비 결제 완료',
-        '출고 준비',
-        '출고 완료',
-        '국내 입항',
-        '국내 배송중',
-        '배송 완료',
-        '구매 확정 대기',
-        '구매 확정'
-    ] as OrderStatus[],
-
-    CLAIMS: [
-        '취소 요청', '취소 처리중', '취소 완료', '취소 거부', '주문 취소됨',
-        '반품 요청', '반품 수거중', '반품 수거 완료', '반품 처리중', '반품 완료', '반품 거부',
-        '교환 요청', '교환 수거중', '교환 수거 완료', '교환 처리중', '교환 재배송중', '교환 완료', '교환 거부'
-    ] as OrderStatus[],
+    ALL: ["NEW", "PREPARING", "READY_TO_SHIP", "SHIPPING", "DELIVERED", "CANCELED"] as OrderStatus[],
+    NEW: ["NEW"] as OrderStatus[],
+    PREPARING: ["PREPARING"] as OrderStatus[],
+    WAITING: ["READY_TO_SHIP"] as OrderStatus[],
+    SHIPPING: ["SHIPPING"] as OrderStatus[],
+    DELIVERED: ["DELIVERED"] as OrderStatus[],
+    CLAIMS: ["CLAIM"] as OrderStatus[],
 };
+
+export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
+    NEW: "신규주문",
+    PREPARING: "상품준비",
+    READY_TO_SHIP: "발송대기",
+    SHIPPING: "배송중",
+    DELIVERED: "배송완료",
+    CANCELED: "판매자취소",
+    CLAIM: "취소/반품/교환",
+};
+
+export const CLAIM_TYPE_LABELS: Record<ClaimType, string> = {
+    CANCEL: "취소",
+    RETURN: "반품",
+    EXCHANGE: "교환",
+};
+
+export const SOURCING_LIFE_STATUS_LABELS: Record<SourcingLifeSyncStatus, string> = {
+    NOT_LINKED: "소싱 전",
+    MATCHING: "이미지 매칭 중",
+    MATCH_SAVED: "매칭 저장",
+    PAYMENT_READY: "결제 가능",
+    PAID: "소싱라이프 결제완료",
+    INVOICE_RECEIVED: "국내송장 수신",
+    HOLD: "처리 보류",
+};
+
+export const MARKET_LABELS = {
+    naver: "스마트스토어",
+    coupang: "쿠팡",
+    "11st": "11번가",
+    gmarket: "지마켓",
+    auction: "옥션",
+} as const;

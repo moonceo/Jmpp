@@ -21,6 +21,14 @@ It is intentionally operational and evidence-based (from project config and code
 - `types/`: Shared domain interfaces and union types.
 - `docs/`: Product and architecture notes.
 
+## Product Planning Docs
+- Current MVP source of truth: `docs/08_주문수집소싱라이프_MVP기획/`.
+- Start from `docs/08_주문수집소싱라이프_MVP기획/00_문서_인덱스.md`.
+- The MVP planning docs are intentionally split by topic so agents can update only the affected part.
+- When changing order workflow, SourcingLife integration, invoice handling, marketplace API mapping, or related UI labels, use the Codex skill `jumunpangpang-planning`.
+- After meaningful product behavior changes, update the relevant planning doc and append a short entry to `docs/08_주문수집소싱라이프_MVP기획/99_변경이력.md`.
+- Do not reintroduce Taobao direct payment or internal forwarder/warehouse management into the MVP unless the user explicitly changes the scope.
+
 ## Setup and Core Commands
 - Install deps: `npm install`
 - Dev server: `npm run dev`

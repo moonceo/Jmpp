@@ -1,173 +1,250 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { RefreshCw, Plus, ExternalLink, Settings, CheckCircle2, AlertTriangle, AlertCircle } from "lucide-react";
 import { useState } from "react";
+import { CheckCircle2, Settings, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { MarketConnectionModal } from "@/components/me/modals/market-connection-modal";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MARKET_LABELS } from "@/lib/constants/orders";
 
-interface Market {
+type MarketAccount = {
     id: string;
-    type: 'naver' | 'coupang' | '11st' | 'esm';
-    alias: string;
-    loginId: string;
-    businessNo: string;
-    status: 'connected' | 'error';
-    lastSync: string;
-    card: string;
-}
+    market: "naver" | "coupang" | "11st" | "gmarket" | "auction";
+    storeName: string;
+    sellerAccount: string;
+    authStatus: "connected";
+    active: boolean;
+    lastCollectedAt: string;
+    lastResult: "success" | "failed";
+    feeRate: number;
+};
+
+const initialAccounts: MarketAccount[] = [
+    {
+        id: "acct-01",
+        market: "naver",
+        storeName: "리빙온마켓",
+        sellerAccount: "naver_living_01",
+        authStatus: "connected",
+        active: true,
+        lastCollectedAt: "2026-06-15 09:42",
+        lastResult: "success",
+        feeRate: 3.6,
+    },
+    {
+        id: "acct-02",
+        market: "naver",
+        storeName: "홈데코랩",
+        sellerAccount: "naver_home_02",
+        authStatus: "connected",
+        active: true,
+        lastCollectedAt: "2026-06-15 09:39",
+        lastResult: "success",
+        feeRate: 3.8,
+    },
+    {
+        id: "acct-03",
+        market: "coupang",
+        storeName: "쿠팡라이프샵",
+        sellerAccount: "coupang_wing_01",
+        authStatus: "connected",
+        active: true,
+        lastCollectedAt: "2026-06-15 09:36",
+        lastResult: "success",
+        feeRate: 10.8,
+    },
+    {
+        id: "acct-04",
+        market: "coupang",
+        storeName: "스마트홈셀러",
+        sellerAccount: "coupang_wing_02",
+        authStatus: "connected",
+        active: true,
+        lastCollectedAt: "2026-06-15 09:10",
+        lastResult: "success",
+        feeRate: 10.8,
+    },
+    {
+        id: "acct-05",
+        market: "11st",
+        storeName: "글로벌픽스토어",
+        sellerAccount: "11st_global_01",
+        authStatus: "connected",
+        active: true,
+        lastCollectedAt: "2026-06-15 09:32",
+        lastResult: "success",
+        feeRate: 13,
+    },
+    {
+        id: "acct-06",
+        market: "11st",
+        storeName: "홈앤키친11",
+        sellerAccount: "11st_home_02",
+        authStatus: "connected",
+        active: true,
+        lastCollectedAt: "2026-06-15 09:28",
+        lastResult: "success",
+        feeRate: 13,
+    },
+    {
+        id: "acct-07",
+        market: "gmarket",
+        storeName: "지마켓리빙박스",
+        sellerAccount: "gmarket_living_01",
+        authStatus: "connected",
+        active: true,
+        lastCollectedAt: "2026-06-15 09:24",
+        lastResult: "success",
+        feeRate: 12,
+    },
+    {
+        id: "acct-08",
+        market: "gmarket",
+        storeName: "데일리홈마켓",
+        sellerAccount: "gmarket_home_02",
+        authStatus: "connected",
+        active: true,
+        lastCollectedAt: "2026-06-15 09:21",
+        lastResult: "success",
+        feeRate: 12,
+    },
+    {
+        id: "acct-09",
+        market: "auction",
+        storeName: "옥션리빙셀렉트",
+        sellerAccount: "auction_living_01",
+        authStatus: "connected",
+        active: true,
+        lastCollectedAt: "2026-06-15 09:18",
+        lastResult: "success",
+        feeRate: 12,
+    },
+    {
+        id: "acct-10",
+        market: "auction",
+        storeName: "하우스웨어옥션",
+        sellerAccount: "auction_home_02",
+        authStatus: "connected",
+        active: true,
+        lastCollectedAt: "2026-06-15 09:15",
+        lastResult: "success",
+        feeRate: 12,
+    },
+];
+
+const authLabel = {
+    connected: "연동 완료",
+};
 
 export default function MarketsPage() {
-    const [markets, setMarkets] = useState<Market[]>([
-        {
-            id: "m_01",
-            type: "naver",
-            alias: "네이버 메인",
-            loginId: "smart_seller_1",
-            businessNo: "123-45-***** (주)주문팡팡",
-            status: "connected",
-            lastSync: "방금 전",
-            card: "국민카드 (1234)"
-        },
-        {
-            id: "m_02",
-            type: "coupang",
-            alias: "쿠팡 서브",
-            loginId: "wing_master",
-            businessNo: "123-45-***** (주)주문팡팡",
-            status: "connected",
-            lastSync: "10분 전",
-            card: "국민카드 (1234)"
-        }
-    ]);
+    const [accounts, setAccounts] = useState(initialAccounts);
 
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [selectedMarketType, setSelectedMarketType] = useState<string>("");
-    const [isTesting, setIsTesting] = useState(false);
-
-    const handleTestConnection = () => {
-        if (!selectedMarketType) return;
-        setIsTesting(true);
-        setTimeout(() => {
-            setIsTesting(false);
-            toast.success("마켓 연동 테스트 성공! 설정을 저장합니다.");
-            setIsModalOpen(false);
-            // Mock Add
-        }, 1500);
+    const updateFee = (id: string, value: string) => {
+        const feeRate = Number(value);
+        if (Number.isNaN(feeRate)) return;
+        setAccounts((current) => current.map((account) => account.id === id ? { ...account, feeRate } : account));
     };
 
-    const getMarketBadge = (type: string) => {
-        switch (type) {
-            case 'naver': return <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">Naver</Badge>;
-            case 'coupang': return <Badge variant="outline" className="text-red-600 border-red-200 bg-red-50">Coupang</Badge>;
-            case '11st': return <Badge variant="outline" className="text-red-800 border-red-300 bg-red-50">11st</Badge>;
-            default: return <Badge variant="outline">기타</Badge>;
-        }
+    const toggleActive = (id: string, active: boolean) => {
+        setAccounts((current) => current.map((account) => account.id === id ? { ...account, active } : account));
     };
 
     return (
-        <div className="space-y-8 max-w-5xl">
-            <div className="flex items-center justify-between">
+        <div className="max-w-7xl space-y-6">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">마켓 연동하기</h1>
-                    <p className="text-muted-foreground mt-2">
-                        주문을 수집할 쇼핑몰을 주문팡팡과 연결합니다.
+                    <h1 className="text-3xl font-bold tracking-tight">마켓 설정</h1>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                        연동 완료된 네이버, 쿠팡, 11번가, 지마켓, 옥션 계정의 수집 설정을 관리합니다.
                     </p>
                 </div>
-                <Button onClick={() => setIsModalOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    새 마켓 연동
+                <Button onClick={() => toast.success("마켓 설정을 저장했습니다.")}>
+                    설정 저장
                 </Button>
             </div>
 
-            {/* Connection Status Board */}
-            <div className="grid gap-4 md:grid-cols-3">
-                <Card>
-                    <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium">연동된 스토어</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{markets.length}개</div>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium">상태</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="flex items-center gap-2 text-green-600 font-medium">
-                            <CheckCircle2 className="h-5 w-5" />
-                            모두 정상 가동 중
-                        </div>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium">최근 수집</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-lg font-mono">2024-01-23 14:30</div>
-                    </CardContent>
-                </Card>
+            <div className="grid gap-3 md:grid-cols-4">
+                <Metric label="연동 계정" value={`${accounts.length}개`} />
+                <Metric label="활성 계정" value={`${accounts.filter((account) => account.active).length}개`} />
+                <Metric label="연동 완료" value={`${accounts.filter((account) => account.authStatus === "connected").length}개`} />
+                <Metric label="수집 실패" value={`${accounts.filter((account) => account.lastResult === "failed").length}개`} />
             </div>
 
-            {/* Market List */}
-            <div className="border rounded-md bg-white dark:bg-zinc-900">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>마켓</TableHead>
-                            <TableHead>별명 (ID)</TableHead>
-                            <TableHead>사업자 정보</TableHead>
-                            <TableHead>연동 상태</TableHead>
-                            <TableHead>결제 카드</TableHead>
-                            <TableHead className="text-right">관리</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {markets.map((market) => (
-                            <TableRow key={market.id}>
-                                <TableCell>{getMarketBadge(market.type)}</TableCell>
-                                <TableCell>
-                                    <div className="flex flex-col">
-                                        <span className="font-medium">{market.alias}</span>
-                                        <span className="text-xs text-muted-foreground">{market.loginId}</span>
-                                    </div>
-                                </TableCell>
-                                <TableCell className="text-sm">{market.businessNo}</TableCell>
-                                <TableCell>
-                                    <div className="flex items-center gap-1.5 text-sm">
-                                        <span className="h-2 w-2 rounded-full bg-green-500" />
-                                        <span>연결됨 </span>
-                                        <span className="text-xs text-muted-foreground">({market.lastSync})</span>
-                                    </div>
-                                </TableCell>
-                                <TableCell>{market.card}</TableCell>
-                                <TableCell className="text-right">
-                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => toast.info("설정 모달 오픈")}>
-                                        <Settings className="h-4 w-4 text-muted-foreground" />
-                                    </Button>
-                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => window.open(market.type === 'naver' ? 'https://sell.smartstore.naver.com' : 'https://wing.coupang.com', '_blank')}>
-                                        <ExternalLink className="h-4 w-4 text-muted-foreground" />
-                                    </Button>
-                                </TableCell>
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
-            </div>
+            <Card className="overflow-hidden p-0">
+                <CardHeader className="border-b bg-slate-50 py-4">
+                    <CardTitle className="text-base">마켓 계정 설정</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                        <Table>
+                            <TableHeader>
+                                <TableRow className="bg-muted/50">
+                                    <TableHead>판매처</TableHead>
+                                    <TableHead>계정 이름</TableHead>
+                                    <TableHead>판매자 계정명</TableHead>
+                                    <TableHead>연동상태</TableHead>
+                                    <TableHead>활성 여부</TableHead>
+                                    <TableHead>마지막 수집시각</TableHead>
+                                    <TableHead>수집 결과</TableHead>
+                                    <TableHead>마켓수수료율</TableHead>
+                                    <TableHead className="text-right">관리</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {accounts.map((account) => (
+                                    <TableRow key={account.id}>
+                                        <TableCell className="whitespace-nowrap font-medium">{MARKET_LABELS[account.market]}</TableCell>
+                                        <TableCell className="whitespace-nowrap font-mono text-xs">{account.storeName}</TableCell>
+                                        <TableCell className="whitespace-nowrap font-mono text-xs">{account.sellerAccount}</TableCell>
+                                        <TableCell>
+                                            <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                                                <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+                                                {authLabel[account.authStatus]}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Switch checked={account.active} onCheckedChange={(checked) => toggleActive(account.id, checked)} />
+                                        </TableCell>
+                                        <TableCell className="whitespace-nowrap text-xs">{account.lastCollectedAt}</TableCell>
+                                        <TableCell>
+                                            <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">성공</Badge>
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="flex items-center gap-1">
+                                                <Input className="h-8 w-20 text-right" value={account.feeRate} onChange={(event) => updateFee(account.id, event.target.value)} />
+                                                <span className="text-xs text-muted-foreground">%</span>
+                                            </div>
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                            <Button variant="ghost" size="icon" onClick={() => toast.info("계정 설정을 엽니다.")}>
+                                                <Settings className="h-4 w-4" />
+                                                <span className="sr-only">설정</span>
+                                            </Button>
+                                            <Button variant="ghost" size="icon" onClick={() => toast.info("계정 삭제 확인이 필요합니다.")}>
+                                                <Trash2 className="h-4 w-4" />
+                                                <span className="sr-only">삭제</span>
+                                            </Button>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </CardContent>
+            </Card>
+        </div>
+    );
+}
 
-            <MarketConnectionModal
-                open={isModalOpen}
-                onOpenChange={setIsModalOpen}
-            />
+function Metric({ label, value }: { label: string; value: string }) {
+    return (
+        <div className="rounded-lg border bg-white px-4 py-3">
+            <div className="text-xs font-medium text-muted-foreground">{label}</div>
+            <div className="mt-1 text-2xl font-bold">{value}</div>
         </div>
     );
 }
