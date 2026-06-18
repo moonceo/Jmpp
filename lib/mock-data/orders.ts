@@ -630,6 +630,25 @@ export const mockOrders: Order[] = [
         expectedSettlement: 43400,
         expectedCost: 25900,
         sourcingLifeSyncStatus: "INVOICE_RECEIVED",
+        sourcingLifeOrderId: "SL-20260610-0017",
+        sourcingLifeSyncedAt: format(subHours(now, 2), "yyyy-MM-dd HH:mm"),
+        sourcingLifeMatch: {
+            candidateId: "ORD-20260610-0017-MATCH-01",
+            optionId: "usb-hub-7in1-gray",
+            productId: "SL-P-0017-01",
+            productName: "USB C타입 7in1 멀티 허브 알루미늄 독",
+            thumbnail: "/images/dummy/robot-vacuum.png",
+            matchRate: 92,
+            optionName: "7in1 / 스페이스그레이",
+            quantity: 1,
+            estimatedCost: 25900,
+            paymentUrl: "https://www.sourcinglife.co.kr/payment?orderId=ORD-20260610-0017",
+        },
+        sourcingLifeActualPayment: {
+            amount: 25900,
+            currency: "KRW",
+            paidAt: format(subHours(now, 2), "yyyy-MM-dd HH:mm"),
+        },
         domesticInvoice: {
             carrier: "한진택배",
             trackingNumber: "789012345678",
@@ -637,6 +656,7 @@ export const mockOrders: Order[] = [
             uploadedToMarketAt: format(subHours(now, 1), "yyyy-MM-dd HH:mm"),
             source: "sourcing_life",
             uploadMode: "auto",
+            changedTrackingNumber: "789012345679",
         },
     },
     {

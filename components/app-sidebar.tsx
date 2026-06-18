@@ -2,7 +2,19 @@
 
 import * as React from "react";
 import { Suspense } from "react";
-import { ChevronRight, DatabaseBackup, Download, Home, LayoutDashboard, MessageSquare, RefreshCw, ShoppingCart, User } from "lucide-react";
+import {
+    ChevronDown,
+    ChevronRight,
+    ClipboardList,
+    DatabaseBackup,
+    Filter,
+    Globe2,
+    Heart,
+    ReceiptText,
+    Search,
+    ShoppingBag,
+    Truck,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
@@ -13,95 +25,33 @@ import {
     SidebarMenu,
     SidebarMenuButton,
     SidebarMenuItem,
-    SidebarMenuSub,
-    SidebarMenuSubButton,
-    SidebarMenuSubItem,
-    SidebarGroup,
-    SidebarGroupContent,
 } from "@/components/ui/sidebar";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
 
-type NavSubItem = {
-    title: string;
-    url?: string;
-    count?: number;
-    priority?: boolean;
-};
-
-const orderCounts = {
-    all: 4,
-    new: 1,
-    preparing: 3,
-    waiting: 1,
-    shipping: 1,
-    delivered: 1,
-    claims: 3,
-};
-
-const navItems = [
-    {
-        title: "대시보드",
-        url: "/",
-        icon: LayoutDashboard,
-    },
-    {
-        title: "주문수집",
-        url: "/orders",
-        icon: ShoppingCart,
-        items: [
-            { title: "전체", url: "/orders" },
-            { title: "신규주문", url: "/orders?view=new" },
-            { title: "상품준비", url: "/orders?view=preparing" },
-            { title: "발송대기", url: "/orders?view=waiting" },
-            { title: "배송중", url: "/orders?view=shipping" },
-            { title: "배송완료", url: "/orders?view=delivered" },
-        ] satisfies NavSubItem[],
-    },
-    {
-        title: "취소/반품/교환",
-        url: "/orders?view=claims",
-        icon: RefreshCw,
-    },
-    {
-        title: "문의관리",
-        url: "/inquiries",
-        icon: MessageSquare,
-    },
-    {
-        title: "장부 다운로드",
-        url: "/ledger",
-        icon: Download,
-    },
-    {
-        title: "내 정보",
-        url: "/me/markets",
-        icon: User,
-    },
+const orderSubMenus = [
+    { title: "주문수집", href: "/orders" },
+    { title: "취소/반품/교환", href: "/orders?view=claims" },
+    { title: "문의관리", href: "/inquiries" },
+    { title: "마켓연동", href: "/me/markets" },
 ];
 
-function isSubItemActive(url: string | undefined, pathname: string, view: string | null) {
-    if (!url) return false;
-    const [path, query] = url.split("?");
-    if (pathname !== path) return false;
-
-    const itemView = query ? new URLSearchParams(query).get("view") : null;
-    return itemView ? view === itemView : !view;
+function isOrderArea(pathname: string) {
+    return pathname === "/orders" || pathname === "/inquiries" || pathname === "/me/markets";
 }
 
-function isNavItemActive(url: string, pathname: string, view: string | null) {
-    const [path, query] = url.split("?");
-    if (pathname !== path && (path === "/" || !pathname.startsWith(path))) return false;
+function isSubMenuActive(href: string, pathname: string, view: string | null) {
+    const [path, query] = href.split("?");
+    if (pathname !== path) return false;
 
-    const itemView = query ? new URLSearchParams(query).get("view") : null;
-    if (itemView) return pathname === path && view === itemView;
-    if (path === "/orders") return pathname === path && !view;
+    const targetView = query ? new URLSearchParams(query).get("view") : null;
+    if (targetView) return view === targetView;
 
-    return true;
+    return path === "/orders" ? view !== "claims" : true;
 }
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
     return (
-        <Suspense fallback={<Sidebar variant="inset" {...props} />}>
+        <Suspense fallback={<Sidebar variant="sidebar" collapsible="icon" {...props} />}>
             <AppSidebarContent {...props} />
         </Suspense>
     );
@@ -111,6 +61,7 @@ function AppSidebarContent({ ...props }: React.ComponentProps<typeof Sidebar>) {
     const pathname = usePathname();
     const searchParams = useSearchParams();
     const view = searchParams.get("view");
+    const orderOpen = isOrderArea(pathname);
     const resetDemoData = () => {
         window.localStorage.removeItem("jumunpangpang.syncedInvoices");
         window.localStorage.removeItem("jumunpangpang.sourcingMatches");
@@ -119,118 +70,127 @@ function AppSidebarContent({ ...props }: React.ComponentProps<typeof Sidebar>) {
     };
 
     return (
-        <Sidebar variant="inset" {...props}>
-            <SidebarHeader>
-                <SidebarMenu>
-                    <SidebarMenuItem>
-                        <SidebarMenuButton size="lg" asChild>
-                            <Link href="/">
-                                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                                    <Home className="size-4" />
-                                </div>
-                                <div className="grid flex-1 text-left text-sm leading-tight">
-                                    <span className="truncate font-semibold">주문수집소싱라이프</span>
-                                    <span className="truncate text-xs">주문수집 · 구매대행 보조</span>
-                                </div>
-                            </Link>
-                        </SidebarMenuButton>
-                    </SidebarMenuItem>
-                </SidebarMenu>
+        <Sidebar variant="sidebar" collapsible="icon" className="border-r border-slate-200 bg-white" {...props}>
+            <SidebarHeader className="border-b border-slate-100 px-3 py-3">
+                <div className="flex h-9 items-center justify-between">
+                    <Link href="/orders" className="text-[22px] font-extrabold tracking-tight text-black">
+                        소싱라이프
+                    </Link>
+                    <button
+                        type="button"
+                        className="h-8 rounded-md border border-slate-300 bg-white px-3 text-sm font-bold text-slate-900 shadow-sm hover:bg-slate-50"
+                    >
+                        닫기
+                    </button>
+                </div>
+                <div className="mt-3 grid grid-cols-2 rounded-lg border border-slate-200 bg-slate-50 p-1">
+                    <button type="button" className="h-9 rounded-md bg-[#ff321c] text-[15px] font-extrabold text-white shadow-sm">
+                        타오바오
+                    </button>
+                    <button type="button" className="h-9 rounded-md text-[15px] font-extrabold text-slate-600 hover:bg-white">
+                        1688
+                    </button>
+                </div>
             </SidebarHeader>
-            <SidebarContent>
-                <SidebarGroup>
-                    <SidebarGroupContent>
-                        <SidebarMenu>
-                            {navItems.map((item) =>
-                                item.items ? (
-                                    <Collapsible key={item.title} asChild defaultOpen className="group/collapsible">
-                                        <SidebarMenuItem>
-                                            <CollapsibleTrigger asChild>
-                                                <SidebarMenuButton
-                                                    tooltip={item.title}
-                                                    isActive={item.items.some((subItem) => isSubItemActive(subItem.url, pathname, view))}
-                                                    className="data-[active=true]:rounded-l-none data-[active=true]:border-l-4 data-[active=true]:border-primary data-[active=true]:bg-sidebar-accent data-[active=true]:font-bold data-[active=true]:shadow-sm"
-                                                >
-                                                    <item.icon />
-                                                    <span>{item.title}</span>
-                                                    <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                                                </SidebarMenuButton>
-                                            </CollapsibleTrigger>
-                                            <CollapsibleContent>
-                                                <SidebarMenuSub>
-                                                    {item.items.map((subItem) => {
-                                                        const countKey = subItem.url?.includes("view=")
-                                                            ? subItem.url.split("view=")[1] as keyof typeof orderCounts
-                                                            : subItem.title === "전체" ? "all" : undefined;
-                                                        const count = countKey ? orderCounts[countKey] : undefined;
-                                                        const isPriority = countKey ? ["all", "new", "preparing", "waiting", "claims"].includes(countKey) : false;
 
-                                                        return (
-                                                        <SidebarMenuSubItem key={subItem.title}>
-                                                            <SidebarMenuSubButton
-                                                                asChild
-                                                                isActive={isSubItemActive(subItem.url, pathname, view)}
-                                                                className="data-[active=true]:font-semibold data-[active=true]:text-primary"
-                                                            >
-                                                                <Link href={subItem.url!}>
-                                                                    <span>{subItem.title}</span>
-                                                                    {typeof count === "number" && (
-                                                                        <span className={`ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${isPriority ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
-                                                                            {count}
-                                                                        </span>
-                                                                    )}
-                                                                </Link>
-                                                            </SidebarMenuSubButton>
-                                                        </SidebarMenuSubItem>
-                                                        );
-                                                    })}
-                                                </SidebarMenuSub>
-                                            </CollapsibleContent>
-                                        </SidebarMenuItem>
-                                    </Collapsible>
-                                ) : (
-                                    <SidebarMenuItem key={item.title}>
-                                        <SidebarMenuButton
-                                            asChild
-                                            tooltip={item.title}
-                                            isActive={isNavItemActive(item.url, pathname, view)}
-                                            className="data-[active=true]:rounded-l-none data-[active=true]:border-l-4 data-[active=true]:border-primary data-[active=true]:bg-sidebar-accent data-[active=true]:font-bold data-[active=true]:shadow-sm"
-                                        >
-                                            <Link href={item.url}>
-                                                <item.icon />
-                                                <span>{item.title}</span>
-                                            </Link>
-                                        </SidebarMenuButton>
-                                    </SidebarMenuItem>
-                                ),
-                            )}
-                        </SidebarMenu>
-                    </SidebarGroupContent>
-                </SidebarGroup>
-            </SidebarContent>
-            <SidebarFooter>
-                <SidebarMenu>
+            <SidebarContent className="px-1.5 py-3">
+                <SidebarMenu className="gap-1">
                     <SidebarMenuItem>
-                        <SidebarMenuButton onClick={resetDemoData} tooltip="데이터 초기화">
-                            <DatabaseBackup />
-                            <span>데이터 초기화</span>
+                        <SidebarMenuButton asChild tooltip="아이템 검색" className="h-12 rounded-md bg-[#ff321c] px-4 text-[16px] font-extrabold text-white hover:bg-[#ff321c]">
+                            <button type="button" disabled className="flex w-full cursor-default items-center gap-3">
+                                <Search className="size-5 shrink-0 text-white" />
+                                <span>아이템 검색</span>
+                            </button>
                         </SidebarMenuButton>
                     </SidebarMenuItem>
+
                     <SidebarMenuItem>
-                        <SidebarMenuButton size="lg" asChild>
-                            <Link href="/me/profile">
-                                <div className="flex aspect-square size-8 items-center justify-center rounded-lg border">
-                                    <User className="size-4" />
-                                </div>
-                                <div className="grid flex-1 text-left text-sm leading-tight">
-                                    <span className="truncate font-semibold">Moon CEO</span>
-                                    <span className="truncate text-xs">moon@jumunpangpang.com</span>
-                                </div>
+                        <SidebarMenuButton
+                            asChild
+                            tooltip="주문관리"
+                            isActive={orderOpen}
+                            className="h-12 rounded-md px-4 text-[16px] font-extrabold text-slate-900 transition data-[active=true]:bg-red-50 data-[active=true]:text-[#ff321c] hover:bg-slate-50"
+                        >
+                            <Link href="/orders" className="flex items-center gap-3">
+                                <ClipboardList className={cn("size-5 shrink-0", orderOpen ? "text-[#ff321c]" : "text-slate-400")} />
+                                <span>주문관리</span>
+                                <ChevronRight className={cn("ml-auto size-4 transition", orderOpen && "rotate-90 text-[#ff321c]")} />
                             </Link>
                         </SidebarMenuButton>
                     </SidebarMenuItem>
+
+                    {orderOpen && (
+                        <div className="mb-1 ml-7 mt-1 space-y-1 border-l border-slate-200 pl-3">
+                            {orderSubMenus.map((item) => {
+                                const active = isSubMenuActive(item.href, pathname, view);
+                                return (
+                                    <Link
+                                        key={item.title}
+                                        href={item.href}
+                                        className={cn(
+                                            "flex h-8 items-center rounded-md px-2 text-[13px] font-bold transition",
+                                            active ? "bg-red-50 text-[#ff321c]" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
+                                        )}
+                                    >
+                                        {item.title}
+                                    </Link>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    <StaticMenu icon={Heart} title="찜 리스트" />
+                    <StaticMenu icon={ShoppingBag} title="장바구니" />
+                    <StaticMenu icon={ReceiptText} title="주문 내역" />
+                    <StaticMenu icon={Truck} title="배송 조회" />
+                    <StaticMenu icon={Globe2} title="통관고유부호" />
                 </SidebarMenu>
+            </SidebarContent>
+
+            <SidebarFooter className="gap-3 border-t border-slate-100 px-2 py-3">
+                <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                    <div className="flex items-center gap-2">
+                        <div className="flex h-7 w-10 items-center justify-center rounded-lg bg-red-600 text-[15px] font-black text-yellow-300">
+                            ★
+                        </div>
+                        <div className="min-w-0">
+                            <div className="text-sm font-extrabold text-slate-900">CNY 1元 = 223.95원</div>
+                            <div className="text-xs font-medium text-slate-500">2026-06-17 18:15 (2분 전)</div>
+                        </div>
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    className="flex h-11 items-center justify-between rounded-lg border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-900 shadow-sm hover:bg-slate-50"
+                >
+                    <span className="flex items-center gap-2">
+                        <Filter className="size-4 text-[#ff321c]" />
+                        검색 필터 상세설정
+                    </span>
+                    <ChevronDown className="size-4 text-slate-900" />
+                </button>
+                <button
+                    type="button"
+                    className="flex h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-slate-50 text-xs font-bold text-slate-500 hover:bg-white"
+                    onClick={resetDemoData}
+                >
+                    <DatabaseBackup className="size-3.5" />
+                    데이터 초기화
+                </button>
             </SidebarFooter>
         </Sidebar>
+    );
+}
+
+function StaticMenu({ icon: Icon, title }: { icon: React.ComponentType<{ className?: string }>; title: string }) {
+    return (
+        <SidebarMenuItem>
+            <SidebarMenuButton asChild tooltip={title} className="h-12 rounded-md px-4 text-[16px] font-extrabold text-slate-900 hover:bg-slate-50">
+                <button type="button" disabled className="flex w-full cursor-default items-center gap-3">
+                    <Icon className="size-5 shrink-0 text-slate-400" />
+                    <span>{title}</span>
+                </button>
+            </SidebarMenuButton>
+        </SidebarMenuItem>
     );
 }

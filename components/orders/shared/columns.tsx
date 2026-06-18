@@ -12,9 +12,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SourcingWorkflowDialog } from "@/components/orders/sourcing-workflow-dialog";
-import { CLAIM_TYPE_LABELS, MARKET_LABELS, ORDER_STATUS_LABELS, SOURCING_LIFE_STATUS_LABELS } from "@/lib/constants/orders";
+import { MARKET_LABELS, ORDER_STATUS_LABELS, SOURCING_LIFE_STATUS_LABELS } from "@/lib/constants/orders";
 import { cn } from "@/lib/utils";
-import { Order, OrderStatus, Recipient, SourcingLifeMatch } from "@/types/order";
+import { Order, Recipient, SourcingLifeMatch } from "@/types/order";
 
 interface OrderColumnActions {
     onSaveSourcingMatch: (order: Order, match: SourcingLifeMatch) => void;
@@ -27,7 +27,6 @@ interface OrderColumnActions {
     onRejectCancelClaim: (order: Order) => void;
     onSendInvoice: (order: Order, carrier?: string, trackingNumber?: string) => void;
     onSaveInvoice: (order: Order, carrier: string, trackingNumber: string) => void;
-    onUpdateShippingInvoice: (order: Order, carrier: string, trackingNumber: string) => void;
     onSaveRecipientInfo: (order: Order, recipient: Recipient) => void;
 }
 
@@ -50,58 +49,8 @@ const claimActionLabel = (order: Order) => {
     return "클레임처리";
 };
 
-const statusClass = (status: OrderStatus) => {
-    if (status === "NEW") return "bg-zinc-900 text-white border-zinc-900";
-    if (status === "PREPARING") return "bg-amber-50 text-amber-700 border-amber-200";
-    if (status === "READY_TO_SHIP") return "bg-indigo-50 text-indigo-700 border-indigo-200";
-    if (status === "SHIPPING") return "bg-sky-50 text-sky-700 border-sky-200";
-    if (status === "DELIVERED") return "bg-emerald-50 text-emerald-700 border-emerald-200";
-    if (status === "CANCELED") return "bg-slate-100 text-slate-700 border-slate-200";
-    return "bg-red-50 text-red-700 border-red-200";
-};
-
-const claimTypeClass = (order: Order) => {
-    if (order.claimType === "CANCEL") return "bg-red-50 text-red-700 border-red-200";
-    if (order.claimType === "RETURN") return "bg-amber-50 text-amber-700 border-amber-200";
-    if (order.claimType === "EXCHANGE") return "bg-violet-50 text-violet-700 border-violet-200";
-    return statusClass(order.status);
-};
-
-const orderStatusLabel = (order: Order) => {
-    if (order.status === "CLAIM" && order.claimType) return CLAIM_TYPE_LABELS[order.claimType];
-    return ORDER_STATUS_LABELS[order.status];
-};
-
-const orderStatusClass = (order: Order) => {
-    if (order.status === "CLAIM") return claimTypeClass(order);
-    return statusClass(order.status);
-};
-
-function OrderStatusCell({ order }: { order: Order }) {
-    if (order.status !== "CLAIM") {
-        return (
-            <Badge variant="outline" className={cn("whitespace-nowrap border font-medium", orderStatusClass(order))}>
-                {orderStatusLabel(order)}
-            </Badge>
-        );
-    }
-
-    const stage = progressStatus(order);
-
-    return (
-        <div className="space-y-1">
-            <Badge variant="outline" className={cn("whitespace-nowrap border font-medium", statusClass(stage))}>
-                {ORDER_STATUS_LABELS[stage]}
-            </Badge>
-            <Badge variant="outline" className={cn("whitespace-nowrap border font-medium", claimTypeClass(order))}>
-                {order.claimStatus ?? (order.claimType ? CLAIM_TYPE_LABELS[order.claimType] : ORDER_STATUS_LABELS[order.status])}
-            </Badge>
-        </div>
-    );
-}
-
 const customsState = (code?: string) => {
-    return code?.trim() && /^P\d{12}$/.test(code.trim().toUpperCase()) ? "확인완료" : "확인필요";
+    return code?.trim() && /^P\d{12}$/.test(code.trim().toUpperCase()) ? "통관부호 일치" : "통관부호 불일치";
 };
 
 function ProductImageDialog({ order }: { order: Order }) {
@@ -167,9 +116,9 @@ function ProductInfoCell({ order }: { order: Order }) {
 
 function MarketAccountCell({ order }: { order: Order }) {
     return (
-        <div className="space-y-0.5">
-            <div className="inline-flex rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-700">{MARKET_LABELS[order.marketType]}</div>
-            <div className="line-clamp-2 text-xs leading-4 text-slate-600">{order.storeName}</div>
+        <div className="min-w-0 space-y-0.5">
+            <div className="inline-flex max-w-full truncate rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-700">{MARKET_LABELS[order.marketType]}</div>
+            <div className="truncate text-xs leading-4 text-slate-600">{order.storeName}</div>
         </div>
     );
 }
@@ -186,13 +135,21 @@ function OrderDateCell({ value }: { value: string }) {
 }
 
 function SourcingLifeInfoCell({ order }: { order: Order }) {
-    if (!order.sourcingLifeOrderId) return <div className="font-mono text-xs font-semibold text-slate-900">-</div>;
+    if (!order.sourcingLifeOrderId) {
+        const isMatched = order.sourcingLifeSyncStatus === "MATCH_SAVED" || order.sourcingLifeSyncStatus === "PAYMENT_READY";
 
-    const orderUrl = `https://www.sourcinglife.co.kr/orders/${encodeURIComponent(order.sourcingLifeOrderId)}`;
+        return (
+            <div className={cn("truncate text-xs font-semibold", isMatched ? "text-emerald-700" : "font-mono text-slate-900")}>
+                {isMatched ? "매칭완료" : "-"}
+            </div>
+        );
+    }
+
+    const orderUrl = `/sourcing-life-order-detail.html?orderId=${encodeURIComponent(order.sourcingLifeOrderId)}`;
 
     return (
         <a
-            className="font-mono text-xs font-semibold text-sky-700 underline-offset-2 hover:underline"
+            className="block truncate font-mono text-xs font-semibold text-sky-700 underline-offset-2 hover:underline"
             href={orderUrl}
             target="_blank"
             rel="noopener noreferrer"
@@ -246,17 +203,17 @@ function DeliveryInfoCell({ order, actions }: { order: Order; actions: OrderColu
     };
 
     return (
-        <div className="space-y-1 text-xs">
-            <div className="font-semibold text-slate-900">{order.recipient.name}</div>
-            <div className="font-mono text-[11px] text-slate-500">{order.recipient.phone}</div>
-            <div className="line-clamp-1 leading-4 text-slate-600">{[order.recipient.zipCode, order.recipient.address, order.recipient.detailAddress].filter(Boolean).join(" ")}</div>
+        <div className="min-w-0 space-y-1 text-xs">
+            <div className="truncate font-semibold text-slate-900">{order.recipient.name}</div>
+            <div className="truncate font-mono text-[11px] text-slate-500">{order.recipient.phone}</div>
+            <div className="truncate leading-4 text-slate-600">{[order.recipient.zipCode, order.recipient.address, order.recipient.detailAddress].filter(Boolean).join(" ")}</div>
             <div className="flex min-w-0 items-center gap-1.5 border-t border-slate-100 pt-1">
                 <span className="truncate font-mono text-[11px] text-slate-700">{order.recipient.personalCustomsCode ?? "-"}</span>
                 <Badge
                     variant="outline"
                     className={cn(
                         "shrink-0 text-[10px]",
-                        customs === "확인완료"
+                        customs === "통관부호 일치"
                             ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                             : "border-amber-200 bg-amber-50 text-amber-700",
                     )}
@@ -264,7 +221,7 @@ function DeliveryInfoCell({ order, actions }: { order: Order; actions: OrderColu
                     {customs}
                 </Badge>
                 <Button size="sm" variant="outline" className="ml-auto h-6 shrink-0 border-slate-200 bg-white px-2 text-[11px] shadow-none" onClick={openEditor}>
-                    배송정보 수정
+                    수정
                 </Button>
             </div>
             <Dialog open={open} onOpenChange={setOpen}>
@@ -294,7 +251,7 @@ function DeliveryInfoCell({ order, actions }: { order: Order; actions: OrderColu
                                 variant="outline"
                                 className={cn(
                                     "text-[11px]",
-                                    editorCustoms === "확인완료"
+                                    editorCustoms === "통관부호 일치"
                                         ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                                         : "border-amber-200 bg-amber-50 text-amber-700",
                                 )}
@@ -413,8 +370,9 @@ function InvoiceInlineInput({
     onSaveInvoice: OrderColumnActions["onSaveInvoice"];
 }) {
     const lastSavedRef = useRef(`${order.domesticInvoice?.carrier ?? ""}:${order.domesticInvoice?.trackingNumber ?? ""}`);
-    const canEdit = order.status === "READY_TO_SHIP" || (order.status === "SHIPPING" && order.marketType === "coupang");
+    const canEdit = order.status === "READY_TO_SHIP";
     const shouldAutoSave = order.status === "READY_TO_SHIP";
+    const changedTrackingNumber = order.domesticInvoice?.changedTrackingNumber?.trim();
 
     const saveIfReady = (nextCarrier = carrier, nextTrackingNumber = trackingNumber) => {
         const normalizedTrackingNumber = nextTrackingNumber.trim();
@@ -428,15 +386,23 @@ function InvoiceInlineInput({
 
     if (!canEdit) {
         return (
-            <div className="text-xs">
-                <div className="font-semibold text-slate-900">{order.domesticInvoice?.carrier || "-"}</div>
-                <div className="mt-0.5 font-mono text-sky-700">{order.domesticInvoice?.trackingNumber || "-"}</div>
+            <div className="space-y-1.5 text-xs">
+                <div>
+                    <div className="font-semibold text-slate-900">{order.domesticInvoice?.carrier || "-"}</div>
+                    <div className="mt-0.5 font-mono text-sky-700">{order.domesticInvoice?.trackingNumber || "-"}</div>
+                </div>
+                {changedTrackingNumber && (
+                    <div className="border-t border-slate-100 pt-1.5">
+                        <div className="text-[10px] font-semibold text-slate-500">변경된 송장번호</div>
+                        <div className="mt-0.5 font-mono text-[11px] font-semibold text-amber-700">{changedTrackingNumber}</div>
+                    </div>
+                )}
             </div>
         );
     }
 
     return (
-        <div className="flex flex-col gap-1.5">
+        <div className="grid grid-cols-[minmax(74px,0.9fr)_minmax(74px,1fr)] gap-1">
             <Select
                 value={carrier}
                 onValueChange={(nextCarrier) => {
@@ -444,7 +410,7 @@ function InvoiceInlineInput({
                     saveIfReady(nextCarrier, trackingNumber);
                 }}
             >
-                <SelectTrigger className="h-6 w-full px-2 text-[11px]">
+                <SelectTrigger size="sm" className="!h-8 !min-h-8 w-full px-2 !py-0 text-[11px] leading-none">
                     <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -456,26 +422,28 @@ function InvoiceInlineInput({
             </Select>
             <Input
                 value={trackingNumber}
-                onChange={(event) => onTrackingNumberChange(event.target.value.replace(/\D/g, ""))}
+                onChange={(event) => {
+                    const nextTrackingNumber = event.target.value.replace(/\D/g, "");
+                    onTrackingNumberChange(nextTrackingNumber);
+                    saveIfReady(carrier, nextTrackingNumber);
+                }}
                 onBlur={() => saveIfReady()}
                 onKeyDown={(event) => {
                     if (event.key === "Enter") saveIfReady();
                 }}
-                placeholder="국내송장번호"
+                placeholder="송장번호"
                 inputMode="numeric"
-                className="h-6 w-full px-2 font-mono text-[11px]"
+                className="!h-8 !min-h-8 w-full px-2 !py-0 font-mono text-[11px] leading-none"
             />
         </div>
     );
 }
 
 function InvoiceActionsCell({ order, actions }: { order: Order; actions: OrderColumnActions }) {
-    const invoiceKey = `${order.domesticInvoice?.carrier ?? ""}:${order.domesticInvoice?.trackingNumber ?? ""}`;
+    const invoiceKey = `${order.domesticInvoice?.carrier ?? ""}:${order.domesticInvoice?.trackingNumber ?? ""}:${order.domesticInvoice?.changedCarrier ?? ""}:${order.domesticInvoice?.changedTrackingNumber ?? ""}`;
     const [syncedInvoiceKey, setSyncedInvoiceKey] = useState(invoiceKey);
     const [carrier, setCarrier] = useState(order.domesticInvoice?.carrier || "CJ대한통운");
     const [trackingNumber, setTrackingNumber] = useState(order.domesticInvoice?.trackingNumber || "");
-    const canSendInvoice = order.status === "READY_TO_SHIP" && Boolean(trackingNumber.trim());
-    const canUpdateShippingInvoice = order.status === "SHIPPING" && order.marketType === "coupang" && Boolean(trackingNumber.trim());
 
     if (syncedInvoiceKey !== invoiceKey) {
         setSyncedInvoiceKey(invoiceKey);
@@ -484,7 +452,7 @@ function InvoiceActionsCell({ order, actions }: { order: Order; actions: OrderCo
     }
 
     return (
-        <div className="space-y-2">
+        <div className="space-y-1.5">
             <InvoiceInlineInput
                 order={order}
                 carrier={carrier}
@@ -493,28 +461,6 @@ function InvoiceActionsCell({ order, actions }: { order: Order; actions: OrderCo
                 onTrackingNumberChange={setTrackingNumber}
                 onSaveInvoice={actions.onSaveInvoice}
             />
-            {order.status === "READY_TO_SHIP" ? (
-                <Button
-                    size="sm"
-                    className="h-6 w-full bg-sky-600 px-2 text-[11px] hover:bg-sky-700"
-                    disabled={!canSendInvoice}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => actions.onSendInvoice(order, carrier, trackingNumber)}
-                >
-                    배송중 처리
-                </Button>
-            ) : null}
-            {order.status === "SHIPPING" && order.marketType === "coupang" ? (
-                <Button
-                    size="sm"
-                    className="h-6 w-full bg-sky-600 px-2 text-[11px] hover:bg-sky-700"
-                    disabled={!canUpdateShippingInvoice}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => actions.onUpdateShippingInvoice(order, carrier, trackingNumber)}
-                >
-                    송장수정
-                </Button>
-            ) : null}
         </div>
     );
 }
@@ -522,11 +468,12 @@ function InvoiceActionsCell({ order, actions }: { order: Order; actions: OrderCo
 function SourcingButton({ order, actions }: { order: Order; actions: OrderColumnActions }) {
     const [open, setOpen] = useState(false);
     const enabled = order.status === "NEW" || order.status === "PREPARING";
+    const buttonLabel = order.status === "NEW" ? "매칭하기" : "소싱하기";
 
     return (
         <>
-            <Button size="sm" variant={enabled ? "default" : "ghost"} className="h-6 w-full whitespace-nowrap px-2 text-[11px] shadow-sm" disabled={!enabled} onClick={() => setOpen(true)}>
-                소싱하기
+            <Button size="sm" variant={enabled ? "default" : "ghost"} className="h-[29px] w-full whitespace-nowrap px-1.5 text-[11px] shadow-sm" disabled={!enabled} onClick={() => setOpen(true)}>
+                {buttonLabel}
             </Button>
             <SourcingWorkflowDialog
                 order={order}
@@ -547,24 +494,24 @@ function ManualPurchaseButton({ order, actions }: { order: Order; actions: Order
     const normalizedTrackingNumber = trackingNumber.trim();
     const hasInvoice = Boolean(normalizedTrackingNumber);
 
-    const completeWithoutInvoice = () => {
-        actions.onCompleteManualPurchase(order);
+    const completeToWaiting = () => {
+        actions.onCompleteManualPurchase(order, hasInvoice ? { carrier, trackingNumber: normalizedTrackingNumber } : undefined, false);
         setOpen(false);
     };
 
-    const completeWithInvoice = (sendNow: boolean) => {
+    const completeToShipping = () => {
         if (!hasInvoice) {
             toast.info("국내송장번호를 입력하세요.");
             return;
         }
 
-        actions.onCompleteManualPurchase(order, { carrier, trackingNumber: normalizedTrackingNumber }, sendNow);
+        actions.onCompleteManualPurchase(order, { carrier, trackingNumber: normalizedTrackingNumber }, true);
         setOpen(false);
     };
 
     return (
         <>
-            <Button size="sm" variant="outline" className="h-6 w-full whitespace-nowrap border-slate-200 bg-white px-2 text-[11px] shadow-none hover:border-sky-200 hover:bg-sky-50" onClick={() => setOpen(true)}>
+            <Button size="sm" variant="outline" className="h-[29px] w-full whitespace-nowrap border-slate-200 bg-white px-1.5 text-[10px] shadow-none hover:border-sky-200 hover:bg-sky-50" onClick={() => setOpen(true)}>
                 수동구매 완료
             </Button>
             <Dialog open={open} onOpenChange={setOpen}>
@@ -573,37 +520,42 @@ function ManualPurchaseButton({ order, actions }: { order: Order; actions: Order
                         <DialogTitle>수동구매 완료</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-3">
-                        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-                            <div className="font-medium text-slate-900">{order.product.name}</div>
-                            <div className="mt-1 text-xs text-slate-500">{order.marketOrderId}</div>
+                        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                            <div className="font-semibold text-slate-900">{order.product.name}</div>
+                            <div className="mt-1 grid gap-1 text-slate-600">
+                                <div className="truncate">옵션: {order.product.optionName}</div>
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                    <span>수량: {order.product.quantity}</span>
+                                    <span className="font-mono">마켓주문번호: {order.marketOrderId}</span>
+                                </div>
+                            </div>
                         </div>
-                        <Select value={carrier} onValueChange={setCarrier}>
-                            <SelectTrigger className="h-9">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="CJ대한통운">CJ대한통운</SelectItem>
-                                <SelectItem value="롯데택배">롯데택배</SelectItem>
-                                <SelectItem value="한진택배">한진택배</SelectItem>
-                                <SelectItem value="우체국택배">우체국택배</SelectItem>
-                            </SelectContent>
-                        </Select>
-                        <Input
-                            value={trackingNumber}
-                            onChange={(event) => setTrackingNumber(event.target.value.replace(/\D/g, ""))}
-                            placeholder="국내송장번호"
-                            inputMode="numeric"
-                            className="font-mono"
-                        />
+                        <div className="grid grid-cols-[150px_1fr] gap-2">
+                            <Select value={carrier} onValueChange={setCarrier}>
+                                <SelectTrigger className="h-9">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="CJ대한통운">CJ대한통운</SelectItem>
+                                    <SelectItem value="롯데택배">롯데택배</SelectItem>
+                                    <SelectItem value="한진택배">한진택배</SelectItem>
+                                    <SelectItem value="우체국택배">우체국택배</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <Input
+                                value={trackingNumber}
+                                onChange={(event) => setTrackingNumber(event.target.value.replace(/\D/g, ""))}
+                                placeholder="국내송장번호"
+                                inputMode="numeric"
+                                className="h-9 font-mono"
+                            />
+                        </div>
                     </div>
                     <DialogFooter className="gap-2 sm:flex-col sm:justify-start">
-                        <Button variant="outline" className="w-full justify-center border-slate-200 bg-white shadow-none" onClick={completeWithoutInvoice}>
-                            발송대기로 이동
+                        <Button variant="outline" className="w-full justify-center border-slate-200 bg-white shadow-none" onClick={completeToWaiting}>
+                            발송대기 처리
                         </Button>
-                        <Button variant="outline" className="w-full justify-center border-slate-200 bg-white shadow-none" disabled={!hasInvoice} onClick={() => completeWithInvoice(false)}>
-                            송장 저장 후 발송대기
-                        </Button>
-                        <Button className="w-full justify-center bg-sky-600 shadow-sm hover:bg-sky-700" disabled={!hasInvoice} onClick={() => completeWithInvoice(true)}>
+                        <Button className="w-full justify-center bg-sky-600 shadow-sm hover:bg-sky-700" disabled={!hasInvoice} onClick={completeToShipping}>
                             배송중 처리
                         </Button>
                     </DialogFooter>
@@ -614,32 +566,71 @@ function ManualPurchaseButton({ order, actions }: { order: Order; actions: Order
 }
 
 function ProcessActionsCell({ order, actions }: { order: Order; actions: OrderColumnActions }) {
+    const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
     const canAccept = order.status === "NEW";
     const canSource = order.status === "NEW" || order.status === "PREPARING";
     const canCompleteManualPurchase = order.status === "PREPARING";
     const canCancel = order.status === "NEW" || order.status === "PREPARING" || order.status === "READY_TO_SHIP";
+    const canSendInvoice = order.status === "READY_TO_SHIP";
+    const hasDomesticInvoice = Boolean(order.domesticInvoice?.trackingNumber?.trim());
 
     if (order.status === "CLAIM") {
         return <ClaimActionDialog order={order} actions={actions} />;
     }
 
-    if (!canAccept && !canSource && !canCompleteManualPurchase && !canCancel) {
+    if (!canAccept && !canSource && !canCompleteManualPurchase && !canCancel && !canSendInvoice) {
         return <span className="text-xs text-slate-400">-</span>;
     }
 
     return (
         <div className="flex flex-col items-stretch gap-1">
             {canAccept && (
-                <Button size="sm" className="h-6 w-full whitespace-nowrap px-2 text-[11px] shadow-sm" onClick={() => actions.onAcceptOrder(order)}>
+                <Button size="sm" className="h-[29px] w-full whitespace-nowrap px-1.5 text-[11px] shadow-sm" onClick={() => actions.onAcceptOrder(order)}>
                     주문확인
                 </Button>
             )}
             {canSource && <SourcingButton order={order} actions={actions} />}
             {canCompleteManualPurchase && <ManualPurchaseButton order={order} actions={actions} />}
-            {canCancel && (
-                <Button size="sm" variant="ghost" className="h-6 w-full px-2 text-[11px] text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => actions.onCancelOrder(order)}>
-                    주문취소
+            {canSendInvoice && (
+                <Button
+                    size="sm"
+                    className="h-[29px] w-full whitespace-nowrap bg-sky-600 px-1.5 text-[11px] shadow-sm hover:bg-sky-700"
+                    disabled={!hasDomesticInvoice}
+                    onClick={() => actions.onSendInvoice(order, order.domesticInvoice?.carrier, order.domesticInvoice?.trackingNumber)}
+                >
+                    배송중 처리
                 </Button>
+            )}
+            {canCancel && (
+                <>
+                    <Button size="sm" variant="outline" className="h-[29px] w-full whitespace-nowrap border-red-200 bg-white px-1.5 text-[11px] text-red-600 shadow-none hover:border-red-300 hover:bg-red-50 hover:text-red-700" onClick={() => setCancelConfirmOpen(true)}>
+                        주문취소
+                    </Button>
+                    <Dialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
+                        <DialogContent className="max-w-md">
+                            <DialogHeader>
+                                <DialogTitle>주문취소 확인</DialogTitle>
+                                <DialogDescription>
+                                    {order.marketOrderId} 주문을 주문취소 처리합니다. 계속 진행할까요?
+                                </DialogDescription>
+                            </DialogHeader>
+                            <DialogFooter>
+                                <Button variant="outline" onClick={() => setCancelConfirmOpen(false)}>
+                                    닫기
+                                </Button>
+                                <Button
+                                    className="bg-red-600 hover:bg-red-700"
+                                    onClick={() => {
+                                        actions.onCancelOrder(order);
+                                        setCancelConfirmOpen(false);
+                                    }}
+                                >
+                                    주문취소
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+                </>
             )}
         </div>
     );
@@ -659,14 +650,9 @@ export function createColumns(actions: OrderColumnActions): ColumnDef<Order>[] {
             enableHiding: false,
         },
         { id: "process", header: "처리하기", cell: ({ row }) => <ProcessActionsCell order={row.original} actions={actions} /> },
-        {
-            accessorKey: "status",
-            header: "주문상태",
-            cell: ({ row }) => <OrderStatusCell order={row.original} />,
-        },
         { accessorKey: "orderDate", header: "주문일시", cell: ({ row }) => <OrderDateCell value={row.original.orderDate} /> },
         { id: "productInfo", header: "상품정보", cell: ({ row }) => <ProductInfoCell order={row.original} /> },
-        { id: "invoice", header: "송장", cell: ({ row }) => <InvoiceActionsCell order={row.original} actions={actions} /> },
+        { id: "invoice", header: "택배정보", cell: ({ row }) => <InvoiceActionsCell order={row.original} actions={actions} /> },
         { id: "deliveryInfo", header: "배송정보", cell: ({ row }) => <DeliveryInfoCell order={row.original} actions={actions} /> },
         { id: "marketAccount", header: "판매처", cell: ({ row }) => <MarketAccountCell order={row.original} /> },
         { id: "sourcingLifeInfo", header: "소싱라이프", cell: ({ row }) => <SourcingLifeInfoCell order={row.original} /> },

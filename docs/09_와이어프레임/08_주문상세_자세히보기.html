@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>주문상세 - 자세히보기</title>
+  <style>
+    body { margin:0; font-family:Arial,"Noto Sans KR",sans-serif; background:#f8fafc; color:#0f172a; }
+    header { padding:16px 22px; background:#fff; border-bottom:1px solid #e2e8f0; }
+    h1 { margin:0; font-size:20px; } p { margin:6px 0 0; color:#64748b; font-size:13px; }
+    main { padding:24px; }
+    .panel { max-width:1120px; margin:0 auto; background:#fff; border:1px solid #e2e8f0; border-radius:10px; box-shadow:0 8px 24px rgba(15,23,42,.08); overflow:hidden; }
+    .summary { display:flex; gap:14px; align-items:center; padding:18px; border-bottom:1px solid #e2e8f0; }
+    .thumb { width:64px; height:64px; border-radius:8px; background:#e2e8f0; }
+    .grid { display:grid; grid-template-columns:1.4fr .8fr 1.2fr .8fr; gap:18px; padding:18px; }
+    section { border:1px solid #e2e8f0; border-radius:8px; padding:14px; }
+    h2 { margin:0 0 12px; font-size:14px; }
+    dl { display:grid; grid-template-columns:86px 1fr; gap:8px 10px; margin:0; font-size:13px; }
+    dt { color:#64748b; } dd { margin:0; font-weight:600; }
+    .wide { grid-column:1 / -1; }
+    button { border:1px solid #cbd5e1; border-radius:7px; background:white; padding:7px 10px; font-weight:600; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>주문상세 - 자세히보기</h1>
+    <p>주문 행 클릭 시 아래로 펼쳐지는 상세 정보 화면입니다.</p>
+  </header>
+  <main>
+    <div class="panel">
+      <div class="summary">
+        <div class="thumb"></div>
+        <div>
+          <strong>실리콘 조리도구 6종 세트</strong>
+          <p>마켓 주문번호 : COUPANG-WAIT-0031 · 2026-06-17 03:00 · 쿠팡 / coupang_life_02</p>
+        </div>
+      </div>
+      <div class="grid">
+        <section class="wide">
+          <h2>주문상품</h2>
+          <dl>
+            <dt>상품명</dt><dd>실리콘 조리도구 6종 세트</dd>
+            <dt>옵션명</dt><dd>그레이 / 11종</dd>
+            <dt>수량</dt><dd>1개</dd>
+            <dt>단가</dt><dd>36,000원</dd>
+            <dt>결제금액</dt><dd>36,000원</dd>
+          </dl>
+        </section>
+        <section>
+          <h2>구매자</h2>
+          <dl><dt>이름</dt><dd>오유나</dd><dt>연락처</dt><dd>010-3131-2222</dd></dl>
+        </section>
+        <section>
+          <h2>배송정보 <button>수정</button></h2>
+          <dl><dt>이름</dt><dd>오유나</dd><dt>주소</dt><dd>충남 천안시 서북구 불당25로 182</dd><dt>통관부호</dt><dd>P313122221234 · 통관부호 일치</dd></dl>
+        </section>
+        <section>
+          <h2>택배정보</h2>
+          <dl><dt>택배사</dt><dd>CJ대한통운</dd><dt>송장번호</dt><dd>512606170031</dd></dl>
+        </section>
+        <section>
+          <h2>소싱상품</h2>
+          <dl><dt>상품명</dt><dd>실리콘 주방 조리도구 세트</dd><dt>옵션명</dt><dd>그레이 11종 · 수량 1개</dd><dt>소싱금액</dt><dd>18,920원</dd><dt>주문번호</dt><dd>SL-202606170031</dd></dl>
+        </section>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

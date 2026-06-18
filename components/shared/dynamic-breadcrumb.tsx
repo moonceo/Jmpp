@@ -16,7 +16,6 @@ const routeNameMap: Record<string, string> = {
     "/orders": "주문수집",
     "/inquiries": "문의관리",
     "/ledger": "장부다운로드",
-    "/me/profile": "계정 설정",
     "/me/markets": "마켓 설정",
     "/me/ledger": "장부다운로드",
 };

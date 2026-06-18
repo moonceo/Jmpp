@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactNode, useEffect, useMemo, useState } from "react";
-import { Check, Search, Store, UserRound } from "lucide-react";
+import { Check, Search, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
     Command,
@@ -44,8 +44,8 @@ const periodOptions: Array<{ value: PeriodFilter; label: string; days?: number }
     { value: "today", label: "오늘", days: 0 },
     { value: "3d", label: "3일", days: 3 },
     { value: "7d", label: "7일", days: 7 },
-    { value: "1m", label: "한달", days: 30 },
-    { value: "custom", label: "직접선택" },
+    { value: "1m", label: "30일", days: 30 },
+    { value: "custom", label: "직접 입력" },
 ];
 
 const marketIconMeta: Record<MarketType, { label: string; className: string }> = {
@@ -55,16 +55,6 @@ const marketIconMeta: Record<MarketType, { label: string; className: string }> =
     gmarket: { label: "G", className: "bg-blue-500 text-white" },
     auction: { label: "A", className: "bg-violet-500 text-white" },
 };
-
-function formatDateFilterLabel(periodFilter: PeriodFilter, startDate: string, endDate: string) {
-    if (periodFilter === "custom") {
-        if (startDate && endDate) return `${startDate} ~ ${endDate}`;
-        if (startDate) return `${startDate} ~`;
-        if (endDate) return `~ ${endDate}`;
-    }
-
-    return periodOptions.find((item) => item.value === periodFilter)?.label ?? "7일";
-}
 
 function getAccountKey(order: Pick<Order, "marketType" | "storeName">) {
     return `${order.marketType}:${order.storeName}`;
@@ -95,8 +85,7 @@ export function OrderSearch({
     const [startDate, setStartDate] = useState("");
     const [endDate, setEndDate] = useState("");
     const [dateOpen, setDateOpen] = useState(false);
-    const [marketOpen, setMarketOpen] = useState(false);
-    const [accountOpen, setAccountOpen] = useState(false);
+    const [combinedOpen, setCombinedOpen] = useState(false);
     const accountOptions = useMemo(() => {
         const optionMap = new Map<string, AccountOption>();
 
@@ -152,13 +141,20 @@ export function OrderSearch({
         onSearch(filtered);
     }, [accountFilters, baseData, endDate, marketFilters, onSearch, periodFilter, searchTerm, startDate]);
 
-    const dateFilterLabel = formatDateFilterLabel(periodFilter, startDate, endDate);
+    const hasCombinedFilter = marketFilters.length > 0 || accountFilters.length > 0;
     const toggleMarketFilter = (marketType: MarketType) => {
-        setMarketFilters((current) => (
-            current.includes(marketType)
-                ? current.filter((item) => item !== marketType)
-                : [...current, marketType]
-        ));
+        const next = marketFilters.includes(marketType)
+            ? marketFilters.filter((item) => item !== marketType)
+            : [...marketFilters, marketType];
+
+        setMarketFilters(next);
+        setAccountFilters((selectedAccounts) => {
+            if (next.length === 0) return selectedAccounts;
+            return selectedAccounts.filter((accountKey) => {
+                const [accountMarket] = accountKey.split(":");
+                return next.includes(accountMarket as MarketType);
+            });
+        });
     };
     const toggleAccountFilter = (accountKey: string) => {
         setAccountFilters((current) => (
@@ -167,56 +163,48 @@ export function OrderSearch({
                 : [...current, accountKey]
         ));
     };
+    const resetCombinedFilter = () => {
+        setMarketFilters([]);
+        setAccountFilters([]);
+    };
+    const isAccountEnabled = (marketType: MarketType) => marketFilters.length === 0 || marketFilters.includes(marketType);
 
     return (
-        <div className="flex flex-col gap-2 rounded-md border border-slate-200 bg-white p-2.5 shadow-sm xl:flex-row xl:items-center">
-            <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <Input
-                    placeholder={placeholder}
-                    className="h-9 border-slate-200 bg-slate-50 pl-9 text-sm shadow-none focus-visible:bg-white"
-                    value={searchTerm}
-                    onChange={(event) => setSearchTerm(event.target.value)}
-                    aria-label="주문 검색"
-                />
-            </div>
+        <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                <div className="inline-flex overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
+                    {periodOptions.map((period) => (
+                        <Button
+                            key={period.value}
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className={cn(
+                                "h-8 rounded-none border-r border-slate-200 px-3 text-xs font-bold text-slate-600 last:border-r-0 hover:bg-slate-50",
+                                periodFilter === period.value && "bg-slate-100 text-slate-950 hover:bg-slate-100",
+                            )}
+                            onClick={() => {
+                                setPeriodFilter(period.value);
+                                if (period.value === "custom") {
+                                    setDateOpen(true);
+                                    return;
+                                }
+                                setStartDate("");
+                                setEndDate("");
+                                setDateOpen(false);
+                            }}
+                        >
+                            {period.label}
+                        </Button>
+                    ))}
+                </div>
 
-            {middleContent && <div className="flex items-center">{middleContent}</div>}
-
-            <Popover open={dateOpen} onOpenChange={setDateOpen}>
-                <PopoverTrigger asChild>
-                    <Button
-                        variant="outline"
-                        className="h-9 w-full justify-start gap-2 border-slate-200 bg-white shadow-none xl:w-[180px]"
-                        aria-label="날짜 필터"
-                    >
-                        <span className="truncate">{dateFilterLabel}</span>
-                    </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[240px] rounded-md p-3" align="end">
-                    <div className="grid gap-2">
-                        {periodOptions.map((period) => (
-                            <Button
-                                key={period.value}
-                                type="button"
-                                variant={periodFilter === period.value ? "default" : "outline"}
-                                size="sm"
-                                onClick={() => {
-                                    setPeriodFilter(period.value);
-                                    if (period.value !== "custom") {
-                                        setStartDate("");
-                                        setEndDate("");
-                                        setDateOpen(false);
-                                    }
-                                }}
-                            >
-                                {period.label}
-                            </Button>
-                        ))}
-                    </div>
-
-                    {periodFilter === "custom" && (
-                        <div className="mt-3 grid gap-2 border-t pt-3">
+                <Popover open={dateOpen} onOpenChange={setDateOpen}>
+                    <PopoverTrigger asChild>
+                        <button type="button" className="sr-only">직접 기간 선택</button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[240px] rounded-md p-3" align="start">
+                        <div className="grid gap-2">
                             <label className="grid gap-1 text-xs font-medium text-muted-foreground">
                                 시작날짜
                                 <Input
@@ -236,99 +224,86 @@ export function OrderSearch({
                                 />
                             </label>
                         </div>
-                    )}
-                </PopoverContent>
-            </Popover>
-
-            {showMarketFilter && (
-                <Popover open={marketOpen} onOpenChange={setMarketOpen}>
-                    <PopoverTrigger asChild>
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            aria-label="플랫폼 필터"
-                            className={cn(
-                                "h-9 w-9 border-slate-200 bg-white shadow-none",
-                                marketFilters.length > 0 && "border-sky-300 bg-sky-50 text-sky-700",
-                            )}
-                        >
-                            <Store className="h-4 w-4" />
-                        </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[180px] rounded-md p-0" align="end">
-                        <Command>
-                            <CommandList>
-                                <CommandGroup>
-                                    <CommandItem
-                                        value="전체 플랫폼"
-                                        onSelect={() => setMarketFilters([])}
-                                    >
-                                        <span className="flex-1">전체</span>
-                                        {marketFilters.length === 0 && <Check className="h-4 w-4" />}
-                                    </CommandItem>
-                                    {marketOptions.map((market) => (
-                                        <CommandItem
-                                            key={market.value}
-                                            value={market.label}
-                                            onSelect={() => toggleMarketFilter(market.value)}
-                                        >
-                                            <span className="flex-1">{market.label}</span>
-                                            {marketFilters.includes(market.value) && <Check className="h-4 w-4" />}
-                                        </CommandItem>
-                                    ))}
-                                </CommandGroup>
-                            </CommandList>
-                        </Command>
                     </PopoverContent>
                 </Popover>
-            )}
 
-            <Popover open={accountOpen} onOpenChange={setAccountOpen}>
-                <PopoverTrigger asChild>
-                    <Button
-                        variant="outline"
-                        size="icon"
-                        aria-label="계정 필터"
-                        className={cn(
-                            "h-9 w-9 border-slate-200 bg-white shadow-none",
-                            accountFilters.length > 0 && "border-sky-300 bg-sky-50 text-sky-700",
-                        )}
-                    >
-                        <UserRound className="h-4 w-4" />
-                    </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[260px] rounded-md p-0" align="end">
-                    <Command>
-                        <CommandList>
-                            <CommandGroup>
-                                <CommandItem
-                                    value="전체 계정"
-                                    onSelect={() => setAccountFilters([])}
-                                >
-                                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-500">
-                                        ALL
-                                    </span>
-                                    <span className="flex-1">전체 계정</span>
-                                    {accountFilters.length === 0 && <Check className="h-4 w-4" />}
-                                </CommandItem>
-                                {accountOptions.map((account) => (
-                                    <CommandItem
-                                        key={account.key}
-                                        value={`${MARKET_LABELS[account.marketType]} ${account.storeName}`}
-                                        onSelect={() => toggleAccountFilter(account.key)}
-                                    >
-                                        <MarketIcon marketType={account.marketType} />
-                                        <span className="flex-1">{account.storeName}</span>
-                                        {accountFilters.includes(account.key) && <Check className="h-4 w-4" />}
-                                    </CommandItem>
-                                ))}
-                            </CommandGroup>
-                        </CommandList>
-                    </Command>
-                </PopoverContent>
-            </Popover>
+                <div className="relative min-w-[280px] flex-1 xl:max-w-[380px]">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <Input
+                        placeholder={placeholder}
+                        className="h-8 border-slate-200 bg-white pl-9 text-sm shadow-sm focus-visible:bg-white"
+                        value={searchTerm}
+                        onChange={(event) => setSearchTerm(event.target.value)}
+                        aria-label="주문 검색"
+                    />
+                </div>
 
-            {commonAction}
+                {showMarketFilter && (
+                    <Popover open={combinedOpen} onOpenChange={setCombinedOpen}>
+                        <PopoverTrigger asChild>
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                aria-label="마켓/스토어 필터"
+                                className={cn(
+                                    "relative h-8 w-8 border-slate-200 bg-white shadow-sm",
+                                    hasCombinedFilter && "border-red-200 bg-red-50 text-[#ff321c]",
+                                )}
+                            >
+                                <Store className="h-4 w-4" />
+                                {hasCombinedFilter && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-[#ff321c]" />}
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[280px] rounded-md p-0" align="start">
+                            <Command>
+                                <CommandList>
+                                    <CommandGroup heading="마켓">
+                                        <CommandItem value="전체 마켓 스토어" onSelect={resetCombinedFilter}>
+                                            <span className="flex-1">전체</span>
+                                            {!hasCombinedFilter && <Check className="h-4 w-4" />}
+                                        </CommandItem>
+                                        {marketOptions.map((market) => (
+                                            <CommandItem
+                                                key={market.value}
+                                                value={market.label}
+                                                onSelect={() => toggleMarketFilter(market.value)}
+                                            >
+                                                <span className="flex-1">{market.label}</span>
+                                                {marketFilters.includes(market.value) && <Check className="h-4 w-4" />}
+                                            </CommandItem>
+                                        ))}
+                                    </CommandGroup>
+                                    <CommandGroup heading="스토어">
+                                        {accountOptions.map((account) => {
+                                            const enabled = isAccountEnabled(account.marketType);
+
+                                            return (
+                                                <CommandItem
+                                                    key={account.key}
+                                                    value={`${MARKET_LABELS[account.marketType]} ${account.storeName}`}
+                                                    disabled={!enabled}
+                                                    className={cn(!enabled && "cursor-not-allowed opacity-35")}
+                                                    onSelect={() => {
+                                                        if (enabled) toggleAccountFilter(account.key);
+                                                    }}
+                                                >
+                                                    <MarketIcon marketType={account.marketType} />
+                                                    <span className="flex-1">{account.storeName}</span>
+                                                    {accountFilters.includes(account.key) && <Check className="h-4 w-4" />}
+                                                </CommandItem>
+                                            );
+                                        })}
+                                    </CommandGroup>
+                                </CommandList>
+                            </Command>
+                        </PopoverContent>
+                    </Popover>
+                )}
+
+                {middleContent && <div className="flex items-center">{middleContent}</div>}
+            </div>
+
+            {commonAction && <div className="flex shrink-0 items-center justify-end">{commonAction}</div>}
         </div>
     );
 }

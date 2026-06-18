@@ -22,11 +22,12 @@ It is intentionally operational and evidence-based (from project config and code
 - `docs/`: Product and architecture notes.
 
 ## Product Planning Docs
-- Current MVP source of truth: `docs/08_주문수집소싱라이프_MVP기획/`.
-- Start from `docs/08_주문수집소싱라이프_MVP기획/00_문서_인덱스.md`.
+- Current MVP source of truth: `docs/00_문서맵/00_문서맵_주문팡팡_소싱라이프_최종기획.md`.
+- Start from the document map above, then update only the affected files under `docs/01_서비스기획/` through `docs/09_와이어프레임/`.
+- Historical references to `docs/08_주문수집소싱라이프_MVP기획/` are not current for this repository; that folder is not part of the active doc set.
 - The MVP planning docs are intentionally split by topic so agents can update only the affected part.
-- When changing order workflow, SourcingLife integration, invoice handling, marketplace API mapping, or related UI labels, use the Codex skill `jumunpangpang-planning`.
-- After meaningful product behavior changes, update the relevant planning doc and append a short entry to `docs/08_주문수집소싱라이프_MVP기획/99_변경이력.md`.
+- When changing order workflow, SourcingLife integration, invoice handling, marketplace API mapping, or related UI labels, update the matching planning docs listed in the document map.
+- After meaningful product behavior changes, update the relevant planning doc and append a short entry to `docs/00_문서맵/99_변경이력.md`.
 - Do not reintroduce Taobao direct payment or internal forwarder/warehouse management into the MVP unless the user explicitly changes the scope.
 
 ## Setup and Core Commands

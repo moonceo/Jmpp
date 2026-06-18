@@ -14,7 +14,6 @@ export default function MyInfoLayout({
 
     const items = [
         { title: "마켓 설정", href: "/me/markets" },
-        { title: "계정 설정", href: "/me/profile" },
     ];
 
     return (

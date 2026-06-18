@@ -40,6 +40,6 @@ export const MARKET_LABELS = {
     naver: "스마트스토어",
     coupang: "쿠팡",
     "11st": "11번가",
-    gmarket: "지마켓",
+    gmarket: "G마켓",
     auction: "옥션",
 } as const;

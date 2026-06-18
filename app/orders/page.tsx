@@ -11,7 +11,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
     const view = params?.view;
     const activeView = view && ["new", "preparing", "waiting", "shipping", "delivered", "claims"].includes(view)
         ? (view as OrdersView)
-        : "all";
+        : "new";
 
     return <OrdersPageClient activeView={activeView} />;
 }

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>마켓/스토어 필터 팝오버</title>
+  <style>
+    body { margin:0; font-family:Arial,"Noto Sans KR",sans-serif; background:#f8fafc; color:#0f172a; }
+    .bar { width:880px; margin:80px auto 0; display:flex; gap:8px; padding:12px; background:white; border:1px solid #e2e8f0; border-radius:12px; }
+    .search { flex:1; border:1px solid #cbd5e1; border-radius:8px; height:38px; padding:0 12px; color:#64748b; }
+    .icon { width:42px; border:1px solid #cbd5e1; border-radius:8px; display:flex; align-items:center; justify-content:center; }
+    .popover { width:420px; margin:10px auto; background:white; border:1px solid #e2e8f0; border-radius:12px; box-shadow:0 14px 36px rgba(15,23,42,.16); padding:16px; }
+    h1 { margin:0 0 12px; font-size:18px; } h2 { font-size:13px; color:#64748b; margin:16px 0 8px; }
+    .chips { display:flex; flex-wrap:wrap; gap:8px; }
+    button { border:1px solid #cbd5e1; border-radius:999px; background:white; padding:8px 12px; font-weight:700; }
+    .active { background:#111827; color:white; border-color:#111827; }
+    .disabled { color:#94a3b8; background:#f1f5f9; }
+  </style>
+</head>
+<body>
+  <div class="bar"><div class="search">상품명, 주문번호, 주문자, 수령인 검색</div><div class="icon">상점</div></div>
+  <div class="popover">
+    <h1>마켓/스토어 필터</h1>
+    <h2>마켓</h2>
+    <div class="chips"><button class="active">쿠팡</button><button>스마트스토어</button><button>11번가</button><button>G마켓</button><button>옥션</button></div>
+    <h2>스토어</h2>
+    <div class="chips"><button class="active">쿠팡라이프02</button><button>쿠팡홈인기전11</button><button class="disabled">리빙온마켓</button><button class="disabled">옥션리빙</button></div>
+  </div>
+</body>
+</html>

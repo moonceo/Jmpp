@@ -4,8 +4,6 @@ import "./globals.css";
 
 import { AppSidebar } from "@/components/app-sidebar";
 import { Providers } from "@/components/providers";
-import { DynamicBreadcrumb } from "@/components/shared/dynamic-breadcrumb";
-import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 
 const geistSans = Geist({
@@ -19,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "주문수집소싱라이프",
-  description: "마켓 주문수집과 구매대행 보조 업무를 위한 관리 화면입니다.",
+  title: "JMPP 주문관리",
+  description: "주문수집, 클레임, 문의, 마켓연동을 관리하는 업무 화면입니다.",
 };
 
 export default function RootLayout({
@@ -30,19 +28,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko" className="overflow-x-hidden" suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} overflow-x-hidden antialiased`}>
+      <body className={`${geistSans.variable} ${geistMono.variable} overflow-x-hidden bg-white antialiased`}>
         <Providers>
           <SidebarProvider>
             <AppSidebar />
-            <SidebarInset>
-              <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
-                <SidebarTrigger className="-ml-1" />
-                <Separator orientation="vertical" className="mr-2 h-4" />
-                <div className="flex-1">
-                  <DynamicBreadcrumb />
-                </div>
-              </header>
-              <main className="flex flex-1 flex-col gap-4 p-4 lg:p-6">{children}</main>
+            <SidebarInset className="relative bg-white">
+              <SidebarTrigger className="absolute left-0 top-10 z-20 hidden -translate-x-1/2 rounded-full border border-slate-200 bg-white shadow-sm md:inline-flex" />
+              <main className="flex min-h-svh flex-1 flex-col bg-white">{children}</main>
             </SidebarInset>
           </SidebarProvider>
         </Providers>

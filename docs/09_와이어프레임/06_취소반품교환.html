@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>취소/반품/교환</title>
+  <style>
+    body { margin: 0; font-family: Arial, "Noto Sans KR", sans-serif; background: #f8fafc; color: #0f172a; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; border-bottom: 1px solid #e2e8f0; background: white; }
+    h1 { margin: 0; font-size: 18px; }
+    p { margin: 4px 0 0; color: #64748b; font-size: 13px; }
+    a { border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; color: #0f172a; text-decoration: none; background: white; font-size: 13px; }
+    a.primary { background: #111827; color: white; border-color: #111827; }
+    iframe { width: 100%; height: calc(100vh - 78px); border: 0; background: white; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>취소/반품/교환</h1>
+      <p>클레임 유형 필터와 처리 모달을 확인합니다.</p>
+    </div>
+    <a class="primary" href="http://localhost:3000/orders?view=claims" target="_blank">새 탭에서 보기</a>
+  </header>
+  <iframe src="http://localhost:3000/orders?view=claims"></iframe>
+</body>
+</html>

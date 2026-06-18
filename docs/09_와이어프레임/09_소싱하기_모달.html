@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>소싱하기 모달</title>
+  <style>
+    body { margin:0; font-family:Arial,"Noto Sans KR",sans-serif; background:#475569; color:#0f172a; }
+    .modal { width:min(1160px,92vw); height:86vh; margin:5vh auto; background:white; border-radius:12px; box-shadow:0 18px 60px rgba(0,0,0,.3); overflow:hidden; }
+    header { padding:20px 24px; border-bottom:1px solid #e2e8f0; }
+    h1 { margin:0; font-size:22px; } p { margin:8px 0 0; color:#64748b; font-size:14px; }
+    .body { display:grid; grid-template-columns:290px 1fr 300px; height:calc(86vh - 86px); }
+    aside, section { padding:20px; overflow:auto; }
+    aside { background:#f8fafc; border-right:1px solid #e2e8f0; }
+    .right { border-left:1px solid #e2e8f0; }
+    .card { display:flex; gap:14px; padding:14px; border:1px solid #e2e8f0; border-radius:10px; margin-bottom:12px; }
+    .card.active { border-color:#ff4d00; }
+    .thumb { width:92px; height:92px; background:#e2e8f0; border-radius:8px; flex:0 0 auto; }
+    h2 { font-size:16px; margin:0 0 14px; }
+    strong { display:block; margin-bottom:5px; }
+    .muted { color:#64748b; font-size:13px; }
+    select, input { width:100%; height:38px; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; }
+    .row { display:flex; justify-content:space-between; gap:12px; margin:12px 0; font-size:14px; }
+    button { width:100%; height:44px; border:0; border-radius:8px; background:#ff3d00; color:white; font-weight:700; }
+  </style>
+</head>
+<body>
+  <div class="modal">
+    <header><h1>소싱하기</h1><p>후보 상품과 옵션을 선택한 뒤 소싱라이프 결제까지 진행합니다.</p></header>
+    <div class="body">
+      <aside>
+        <h2>현재 주문</h2>
+        <div class="thumb"></div>
+        <strong>로봇청소기 X10 Plus 물걸레 겸용</strong>
+        <p class="muted">화이트 / 기본형 · 수량 1개</p>
+        <hr />
+        <p>주문번호 COUPANG-892123</p>
+        <p>수령인 이영희</p>
+        <p>결제금액 420,000원</p>
+      </aside>
+      <section>
+        <h2>추천 소싱 상품 <button style="float:right;width:auto;height:34px;background:white;color:#ff3d00;border:1px solid #ff3d00;">소싱라이프에서 직접 찾기</button></h2>
+        <div class="card active"><div class="thumb"></div><div><strong>X10 Plus 스마트 로봇청소기 물걸레 세트</strong><p class="muted">X10 Plus 智能扫地机器人拖布套装<br/>Shenzhen CleanTech</p><strong>156,492원 (828위안)</strong></div></div>
+        <div class="card"><div class="thumb"></div><div><strong>가정용 자동 물걸레 로봇청소기</strong><p class="muted">家用自动拖地扫地机器人<br/>Yiwu Home Appliance</p><strong>149,877원 (793위안)</strong></div></div>
+        <div class="card"><div class="thumb"></div><div><strong>X10 Plus 유사상품 3</strong><p class="muted">相似款 3<br/>Shenzhen CleanTech 3호점</p><strong>157,626원 (834위안)</strong></div></div>
+      </section>
+      <aside class="right">
+        <h2>옵션 선택</h2>
+        <strong>선택 상품</strong>
+        <p>X10 Plus 스마트 로봇청소기 물걸레 세트</p>
+        <select><option>화이트 / 기본형&#10;白色 / 基本款</option></select>
+        <div class="row"><span>재고</span><strong>58개</strong></div>
+        <div class="row"><span>수량</span><input value="1" style="width:90px;text-align:center;" /></div>
+        <div class="row"><span>상품 단가</span><strong>156,492원 (828위안)</strong></div>
+        <div class="row"><span>상품 원가 합계</span><strong>156,492원</strong></div>
+        <div class="row"><span>결제금액 - 상품원가</span><strong style="color:#047857;">263,508원</strong></div>
+        <button>소싱라이프 결제 하기</button>
+      </aside>
+    </div>
+  </div>
+</body>
+</html>

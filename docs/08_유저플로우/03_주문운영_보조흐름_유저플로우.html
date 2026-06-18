@@ -5,228 +5,123 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>주문운영 보조흐름 유저플로우</title>
   <style>
-    :root {
-      color-scheme: light;
-      --bg: #f6f7f9;
-      --panel: #ffffff;
-      --text: #1f2937;
-      --muted: #667085;
-      --line: #d0d5dd;
-      --accent: #1473e6;
-      --accent-soft: #e8f1ff;
-    }
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", Arial, sans-serif;
-      line-height: 1.6;
-    }
-    header {
-      padding: 32px 40px 24px;
-      background: var(--panel);
-      border-bottom: 1px solid var(--line);
-    }
-    h1 {
-      margin: 0 0 8px;
-      font-size: 30px;
-      line-height: 1.25;
-      letter-spacing: 0;
-    }
-    .meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      color: var(--muted);
-      font-size: 14px;
-    }
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      min-height: 28px;
-      padding: 4px 10px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #fff;
-    }
-    main {
-      max-width: 1440px;
-      margin: 0 auto;
-      padding: 28px 32px 48px;
-    }
-    section {
-      margin-bottom: 28px;
-      padding: 24px;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-    }
-    h2 {
-      margin: 0 0 14px;
-      font-size: 20px;
-      letter-spacing: 0;
-    }
-    p {
-      margin: 0 0 12px;
-      color: var(--muted);
-    }
-    .note {
-      padding: 12px 14px;
-      border-left: 4px solid var(--accent);
-      background: var(--accent-soft);
-      color: #18436f;
-      border-radius: 6px;
-    }
-    .diagram {
-      overflow: auto;
-      padding: 16px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #fff;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 14px;
-    }
-    th, td {
-      padding: 10px 12px;
-      border: 1px solid var(--line);
-      text-align: left;
-      vertical-align: top;
-    }
-    th {
-      background: #f2f4f7;
-      font-weight: 700;
-    }
-    code {
-      padding: 2px 6px;
-      border-radius: 4px;
-      background: #f2f4f7;
-      font-family: Consolas, "Courier New", monospace;
-      font-size: 13px;
-    }
-    @media (max-width: 900px) {
-      header { padding: 24px 20px 18px; }
-      main { padding: 20px 16px 36px; }
-      section { padding: 18px; }
-    }
+    body { margin: 0; background: #f6f7f9; color: #172033; font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", Arial, sans-serif; line-height: 1.6; }
+    header { padding: 30px 40px 22px; background: #fff; border-bottom: 1px solid #d9e0ea; }
+    h1 { margin: 0 0 8px; font-size: 30px; letter-spacing: 0; }
+    h2 { margin: 0 0 14px; font-size: 20px; letter-spacing: 0; }
+    main { max-width: 1280px; margin: 0 auto; padding: 28px 32px 48px; }
+    section { margin-bottom: 18px; padding: 22px; background: #fff; border: 1px solid #d9e0ea; border-radius: 8px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px; }
+    .badge { display: inline-flex; align-items: center; min-height: 28px; padding: 4px 10px; border: 1px solid #d9e0ea; border-radius: 6px; background: #fff; font-size: 13px; color: #526176; }
+    .diagram { overflow: auto; padding: 16px; border: 1px solid #d9e0ea; border-radius: 8px; background: #fbfdff; }
+    p { margin: 10px 0 0; color: #526176; }
+    @media (max-width: 900px) { header { padding: 24px 20px 18px; } main { padding: 20px 16px 36px; } section { padding: 18px; } }
   </style>
 </head>
 <body>
   <header>
     <h1>주문운영 보조흐름 유저플로우</h1>
     <div class="meta">
-      <span class="badge">버전 v1.0</span>
-      <span class="badge">최종수정일 2026-06-15</span>
-      <span class="badge">Draft - 현재기준</span>
+      <span class="badge">버전 v1.2</span>
+      <span class="badge">최종수정일 2026-06-18</span>
+      <span class="badge">현재 프론트 구현 기준</span>
       <span class="badge">원본: 03_주문운영_보조흐름_유저플로우.md</span>
     </div>
   </header>
   <main>
     <section>
-      <h2>문서 목적</h2>
-      <p>이 HTML은 일괄처리, 클레임, 테이블 클릭 인터랙션 흐름을 브라우저에서 확인하기 위한 시각화 산출물이다.</p>
-      <p class="note">MD 파일을 원본 기준으로 관리하고, HTML은 검토와 공유를 위한 보기용 파일로 사용한다.</p>
-    </section>
-
-    <section>
-      <h2>일괄처리 흐름</h2>
+      <h2>일괄 주문확인</h2>
       <div class="diagram">
         <pre class="mermaid">
 flowchart TD
-    A["신규주문 메뉴 진입"] --> B{"주문 선택 여부"}
-    B -->|"선택 있음"| C["선택 주문확인 n건"]
-    B -->|"선택 없음"| D["전체 주문확인"]
-    C --> E["선택된 NEW 주문만 대상"]
-    D --> F["현재 필터 결과의 NEW 주문 대상"]
-    E --> G["주문확인 일괄 실행"]
-    F --> G
-    G --> H{"처리 결과"}
-    H -->|"전체 성공"| I["성공 주문 상품준비 이동<br/>PREPARING"]
-    H -->|"일부 실패"| J["성공 주문 상품준비 이동"]
-    J --> K["실패 주문 신규주문 유지<br/>실패 사유 표시"]
-    H -->|"처리 대상 없음"| L["주문확인할 신규주문 없음 안내"]
+    A["신규주문"] --> B{"체크된 주문 있음?"}
+    B -->|"없음"| C["주문확인 버튼 비활성"]
+    B -->|"있음"| D["주문확인"]
+    D --> E["체크된 NEW 주문만 처리"]
+    E --> F["상품준비로 이동"]
         </pre>
       </div>
     </section>
 
     <section>
-      <h2>클레임 흐름</h2>
+      <h2>일괄 주문취소</h2>
       <div class="diagram">
         <pre class="mermaid">
 flowchart TD
-    A["클레임 진입 조건"] --> B{"진입 경로"}
-    B -->|"신규주문 주문취소"| C["주문취소 사유 반영"]
-    B -->|"마켓 취소/반품/교환 수집"| D["마켓 클레임 정보 반영"]
-    C --> E["취소/반품/교환<br/>CLAIM"]
-    D --> E
-    E --> F["클레임 목록 표시"]
-    F --> G["클레임확인 클릭"]
-    G --> H["클레임 사유 확인"]
-    H --> I{"후속 처리 필요?"}
-    I -->|"필요"| J["후속 처리 보류 또는 확장 대상 표시"]
-    I -->|"불필요"| K["조회 상태 유지"]
+    A["신규주문"] --> B{"체크된 주문 있음?"}
+    B -->|"없음"| C["주문취소 버튼 비활성"]
+    B -->|"있음"| D["주문취소"]
+    D --> E["확인 모달"]
+    E --> F["체크된 주문 판매자취소 처리"]
+        </pre>
+      </div>
+      <p>개별 주문취소와 일괄 주문취소 모두 확인 모달을 거친다.</p>
+    </section>
+
+    <section>
+      <h2>선택 상태 초기화</h2>
+      <div class="diagram">
+        <pre class="mermaid">
+flowchart TD
+    A["주문 체크 선택"] --> B{"화면 조건 변경"}
+    B -->|"상단 탭 변경"| C["체크 해제"]
+    B -->|"검색/필터 변경"| C
+    B -->|"주문 데이터 갱신"| C
+    C --> D["현재 화면 기준으로 다시 선택"]
         </pre>
       </div>
     </section>
 
     <section>
-      <h2>이미지/상품명/주문번호 클릭 흐름</h2>
+      <h2>클레임 보조 흐름</h2>
       <div class="diagram">
         <pre class="mermaid">
 flowchart TD
-    A["주문 테이블"] --> B{"클릭 대상"}
-    B -->|"마켓 주문번호"| C["주문상세 모달 열기"]
-    C --> D["공통 주문 정보 표시"]
-    D --> E["현재 상태별 다음 단계 버튼 표시"]
-    B -->|"상품이미지"| F["이미지 크게 보기 모달 열기"]
-    F --> G["상품 이미지 표시"]
-    G --> H{"이미지 복사 클릭"}
-    H -->|"성공"| I["이미지 복사 성공 메시지"]
-    H -->|"실패"| J["이미지 복사 실패 메시지"]
-    B -->|"상품명"| K{"상품 상세 URL 있음?"}
-    K -->|"있음"| L["오픈마켓 상품 상세 새 창 또는 새 탭 이동"]
-    K -->|"없음"| M["일반 텍스트로 표시"]
+    A["취소/반품/교환"] --> B["유형 필터"]
+    B --> C{"클레임 유형"}
+    C -->|"취소"| D["취소처리"]
+    C -->|"반품"| E["반품처리"]
+    C -->|"교환"| F["교환처리"]
+        </pre>
+      </div>
+      <p>취소 클레임은 승인 또는 거부를 선택할 수 있고, 반품/교환은 현재 MVP에서 조회 중심이다.</p>
+    </section>
+
+    <section>
+      <h2>자세히 보기와 배송정보 수정</h2>
+      <div class="diagram">
+        <pre class="mermaid">
+flowchart TD
+    A["주문 행 클릭"] --> B["자세히 보기 펼침"]
+    B --> C["주문상품"]
+    B --> D["구매자"]
+    B --> E["배송정보"]
+    B --> F["택배정보"]
+    B --> G["소싱상품"]
+    E --> H["배송정보 수정"]
+    H --> I["수취인 이름/연락처/주소/개인통관부호 수정"]
+    I --> J["주문 데이터 반영"]
         </pre>
       </div>
     </section>
 
     <section>
-      <h2>핵심 기준</h2>
-      <table>
-        <thead>
-          <tr><th>항목</th><th>기준</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>일괄 주문확인</td><td><code>NEW</code> 상태 주문만 대상</td></tr>
-          <tr><td>성공 주문</td><td><code>PREPARING</code>으로 이동</td></tr>
-          <tr><td>실패 주문</td><td><code>NEW</code> 유지, 실패 사유 표시</td></tr>
-          <tr><td>클레임</td><td><code>CLAIM</code> 상태로 관리하고 <code>클레임확인</code> 제공</td></tr>
-          <tr><td>마켓 주문번호</td><td>주문상세 모달 열기</td></tr>
-          <tr><td>상품이미지</td><td>이미지 크게 보기 및 이미지 복사</td></tr>
-          <tr><td>상품명</td><td>오픈마켓 상품 상세 이동</td></tr>
-        </tbody>
-      </table>
+      <h2>데모 데이터 초기화</h2>
+      <div class="diagram">
+        <pre class="mermaid">
+flowchart TD
+    A["주문관리 화면 진입"] --> B["mock 주문 데이터 로드"]
+    B --> C["소싱 매칭/결제/송장 localStorage 초기화"]
+    D["좌측 데이터 초기화"] --> C
+    C --> E["데모 기준 주문 목록 재표시"]
+        </pre>
+      </div>
     </section>
   </main>
   <script type="module">
     import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-    mermaid.initialize({
-      startOnLoad: true,
-      securityLevel: "loose",
-      theme: "base",
-      themeVariables: {
-        fontFamily: "Pretendard, Apple SD Gothic Neo, Malgun Gothic, Arial",
-        primaryColor: "#e8f1ff",
-        primaryTextColor: "#1f2937",
-        primaryBorderColor: "#1473e6",
-        lineColor: "#667085",
-        secondaryColor: "#f2f4f7",
-        tertiaryColor: "#ffffff"
-      }
-    });
+    mermaid.initialize({ startOnLoad: true, securityLevel: "loose", theme: "base" });
   </script>
 </body>
 </html>

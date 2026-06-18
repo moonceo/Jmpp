@@ -1,22 +1,24 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { OrderSearch } from "@/components/orders/shared/order-search";
 import { OrderTable } from "@/components/orders/shared/order-table";
 import { createColumns } from "@/components/orders/shared/columns";
-import { ORDER_STATUS_LABELS, ORDER_STATUSES } from "@/lib/constants/orders";
+import { ORDER_STATUSES } from "@/lib/constants/orders";
 import { mockOrders } from "@/lib/mock-data/orders";
+import { cn } from "@/lib/utils";
 import { ClaimType, Order, OrderStatus, Recipient, SourcingLifeMatch } from "@/types/order";
 
 export type OrdersView = "all" | "new" | "preparing" | "waiting" | "shipping" | "delivered" | "claims";
 type WaitingInvoiceFilter = "all" | "with" | "without";
 type ClaimTypeFilter = "all" | ClaimType;
-type ClaimStageStatus = Exclude<OrderStatus, "CLAIM" | "CANCELED">;
-type ClaimStageFilter = "all" | ClaimStageStatus;
 
 interface SyncedInvoice {
     orderId: string;
@@ -48,7 +50,6 @@ interface OrdersPageClientProps {
 const SYNC_STORAGE_KEY = "jumunpangpang.syncedInvoices";
 const MATCH_STORAGE_KEY = "jumunpangpang.sourcingMatches";
 const PAYMENT_STORAGE_KEY = "jumunpangpang.sourcingPayments";
-const claimStageStatuses: ClaimStageStatus[] = ["NEW", "PREPARING", "READY_TO_SHIP", "SHIPPING", "DELIVERED"];
 
 const viewLabels: Record<OrdersView, string> = {
     all: "전체",
@@ -69,6 +70,14 @@ const viewStatuses: Record<OrdersView, OrderStatus[]> = {
     delivered: ORDER_STATUSES.DELIVERED,
     claims: ORDER_STATUSES.CLAIMS,
 };
+
+const collectionTabs: Array<{ view: Exclude<OrdersView, "all" | "claims">; href: string }> = [
+    { view: "new", href: "/orders?view=new" },
+    { view: "preparing", href: "/orders?view=preparing" },
+    { view: "waiting", href: "/orders?view=waiting" },
+    { view: "shipping", href: "/orders?view=shipping" },
+    { view: "delivered", href: "/orders?view=delivered" },
+];
 
 function loadJson<T>(key: string): T[] {
     if (typeof window === "undefined") return [];
@@ -175,6 +184,18 @@ function hasSourcingLifeInvoiceOnPayment(order: Order) {
     return order.product.quantity > 1 || orderNumber % 4 === 0;
 }
 
+function createSellerCanceledOrder(order: Order, canceledAt: string): Order {
+    return {
+        ...order,
+        status: "CANCELED" as OrderStatus,
+        previousStatus: order.status === "CLAIM" || order.status === "CANCELED" ? order.previousStatus : order.status,
+        sourcingLifeSyncStatus: "HOLD" as const,
+        sellerCancelReason: "판매자 주문취소",
+        sellerCanceledAt: canceledAt,
+        failureReason: "판매자 주문취소 완료",
+    };
+}
+
 export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
     const [allOrders, setAllOrders] = useState<Order[]>(mockOrders);
     const [autoDomesticCollection, setAutoDomesticCollection] = useState(false);
@@ -182,8 +203,8 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
     const [autoSourcingLifeShipping, setAutoSourcingLifeShipping] = useState(false);
     const [waitingInvoiceFilter, setWaitingInvoiceFilter] = useState<WaitingInvoiceFilter>("all");
     const [claimTypeFilter, setClaimTypeFilter] = useState<ClaimTypeFilter>("all");
-    const [claimStageFilter, setClaimStageFilter] = useState<ClaimStageFilter>("all");
     const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
+    const [bulkCancelConfirmOpen, setBulkCancelConfirmOpen] = useState(false);
     const isClaimView = activeView === "claims";
 
     const filteredBaseOrders = useMemo(() => {
@@ -201,10 +222,6 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
                 claimOrders = claimOrders.filter((order) => order.claimType === claimTypeFilter);
             }
 
-            if (claimStageFilter !== "all") {
-                claimOrders = claimOrders.filter((order) => (order.previousStatus ?? order.status) === claimStageFilter);
-            }
-
             return claimOrders;
         }
 
@@ -213,7 +230,7 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
         return filteredBaseOrders.filter((order) => (
             waitingInvoiceFilter === "with" ? Boolean(order.domesticInvoice) : !order.domesticInvoice
         ));
-    }, [activeView, claimStageFilter, claimTypeFilter, filteredBaseOrders, waitingInvoiceFilter]);
+    }, [activeView, claimTypeFilter, filteredBaseOrders, waitingInvoiceFilter]);
     const claimTypeCounts = useMemo(() => {
         return filteredBaseOrders.reduce((counts, order) => {
             if (order.claimType === "CANCEL") counts.cancel += 1;
@@ -222,22 +239,6 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
             return counts;
         }, { all: filteredBaseOrders.length, cancel: 0, return: 0, exchange: 0 });
     }, [filteredBaseOrders]);
-    const claimStageCounts = useMemo(() => {
-        return filteredBaseOrders.reduce<Record<ClaimStageFilter, number>>((counts, order) => {
-            const progressStatus = order.previousStatus ?? order.status;
-            if (claimStageStatuses.includes(progressStatus as ClaimStageStatus)) {
-                counts[progressStatus as ClaimStageStatus] += 1;
-            }
-            return counts;
-        }, {
-            all: filteredBaseOrders.length,
-            NEW: 0,
-            PREPARING: 0,
-            READY_TO_SHIP: 0,
-            SHIPPING: 0,
-            DELIVERED: 0,
-        });
-    }, [filteredBaseOrders]);
     const waitingInvoiceCounts = useMemo(() => {
         return filteredBaseOrders.reduce((counts, order) => {
             if (order.domesticInvoice) counts.with += 1;
@@ -245,6 +246,18 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
             return counts;
         }, { all: filteredBaseOrders.length, with: 0, without: 0 });
     }, [filteredBaseOrders]);
+    const statusCounts = useMemo(() => {
+        return collectionTabs.reduce<Record<Exclude<OrdersView, "all" | "claims">, number>>((counts, tab) => {
+            counts[tab.view] = allOrders.filter((order) => viewStatuses[tab.view].includes(order.status)).length;
+            return counts;
+        }, {
+            new: 0,
+            preparing: 0,
+            waiting: 0,
+            shipping: 0,
+            delivered: 0,
+        });
+    }, [allOrders]);
     const [orders, setOrders] = useState<Order[]>(visibleBaseOrders);
 
     useEffect(() => {
@@ -287,7 +300,7 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
     const handleCompleteSourcingPayment = useCallback((order: Order, match: SourcingLifeMatch) => {
         const cachedMatch = saveSourcingMatch(order, match);
         const now = new Date().toISOString().slice(0, 16).replace("T", " ");
-        const actualPaymentAmount = match.estimatedCost ? match.estimatedCost * order.product.quantity : order.expectedCost ?? 0;
+        const actualPaymentAmount = match.estimatedCost ? match.estimatedCost * (match.quantity ?? order.product.quantity) : order.expectedCost ?? 0;
         const sourcingLifeInvoice = hasSourcingLifeInvoiceOnPayment(order)
             ? createDummyInvoice(order.id, getOrderNumber(order), autoSourcingLifeShipping ? now : undefined, autoSourcingLifeShipping ? "auto" : undefined)
             : undefined;
@@ -437,19 +450,29 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
         const now = new Date().toISOString().slice(0, 16).replace("T", " ");
         setAllOrders((current) => current.map((item) => (
             item.id === order.id
-                ? {
-                    ...item,
-                    status: "CANCELED" as OrderStatus,
-                    previousStatus: item.status === "CLAIM" || item.status === "CANCELED" ? item.previousStatus : item.status,
-                    sourcingLifeSyncStatus: "HOLD" as const,
-                    sellerCancelReason: "판매자 주문취소",
-                    sellerCanceledAt: now,
-                    failureReason: "판매자 주문취소 완료",
-                }
+                ? createSellerCanceledOrder(item, now)
                 : item
         )));
         toast.success(`${order.marketOrderId} 주문을 판매자취소로 처리했습니다.`);
     }, []);
+
+    const handleBulkCancelOrders = useCallback((orderIds: string[]) => {
+        const targetIds = new Set(orderIds);
+        const targetOrders = allOrders.filter((order) => targetIds.has(order.id) && order.status === "NEW");
+
+        if (targetOrders.length === 0) {
+            toast.info("주문취소할 신규주문을 선택하세요.");
+            return;
+        }
+
+        const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+        setAllOrders((current) => current.map((item) => (
+            targetIds.has(item.id) && item.status === "NEW"
+                ? createSellerCanceledOrder(item, now)
+                : item
+        )));
+        toast.success(`${targetOrders.length}건을 판매자취소로 처리했습니다.`);
+    }, [allOrders]);
 
     const handleApproveCancelClaim = useCallback((order: Order) => {
         const now = new Date().toISOString().slice(0, 16).replace("T", " ");
@@ -556,33 +579,6 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
         }
     }, [autoInvoiceSend, handleSendInvoice]);
 
-    const handleUpdateShippingInvoice = useCallback((order: Order, carrier: string, trackingNumber: string) => {
-        if (order.status !== "SHIPPING" || order.marketType !== "coupang") {
-            toast.info("배송중 송장수정은 쿠팡 주문만 이 화면에서 전송할 수 있습니다.");
-            return;
-        }
-
-        if (!trackingNumber.trim()) {
-            toast.info("수정할 국내송장번호를 입력하세요.");
-            return;
-        }
-
-        const now = new Date().toISOString().slice(0, 16).replace("T", " ");
-        const invoice: SyncedInvoice = {
-            orderId: order.id,
-            carrier,
-            trackingNumber: trackingNumber.trim(),
-            receivedAt: order.domesticInvoice?.receivedAt ?? now,
-            uploadedToMarketAt: now,
-            source: order.domesticInvoice?.source ?? "manual",
-            uploadMode: "manual",
-        };
-
-        saveSyncedInvoice(invoice);
-        setAllOrders((current) => applyCachedState(current, [], [], [invoice]));
-        toast.success(`${order.marketOrderId} 주문의 수정 송장을 쿠팡에 전송했습니다.`);
-    }, []);
-
     const handleSaveRecipientInfo = useCallback((order: Order, recipient: Recipient) => {
         setAllOrders((current) => current.map((item) => (
             item.id === order.id
@@ -607,10 +603,9 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
             onRejectCancelClaim: handleRejectCancelClaim,
             onSendInvoice: handleSendSingleInvoice,
             onSaveInvoice: handleSaveInvoice,
-            onUpdateShippingInvoice: handleUpdateShippingInvoice,
             onSaveRecipientInfo: handleSaveRecipientInfo,
         }),
-        [handleSaveSourcingMatch, handleCompleteSourcingPayment, handleCompleteManualPurchase, handleSourcingAndAcceptOrder, handleAcceptOrder, handleCancelOrder, handleApproveCancelClaim, handleRejectCancelClaim, handleSendSingleInvoice, handleSaveInvoice, handleUpdateShippingInvoice, handleSaveRecipientInfo],
+        [handleSaveSourcingMatch, handleCompleteSourcingPayment, handleCompleteManualPurchase, handleSourcingAndAcceptOrder, handleAcceptOrder, handleCancelOrder, handleApproveCancelClaim, handleRejectCancelClaim, handleSendSingleInvoice, handleSaveInvoice, handleSaveRecipientInfo],
     );
 
     const waitingOrders = useMemo(() => {
@@ -665,6 +660,8 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
     const collectActionOrders = hasSelectedOrders ? selectedOrders : visibleBaseOrders;
     const hasSendableInvoice = invoiceActionOrders.some((order) => order.domesticInvoice && !order.domesticInvoice.uploadedToMarketAt);
     const hasCollectableInvoice = collectActionOrders.some((order) => !order.domesticInvoice && order.sourcingLifeOrderId);
+    const selectedCancelableNewOrders = selectedOrders.filter((order) => order.status === "NEW");
+    const hasSelectedCancelableNewOrders = selectedCancelableNewOrders.length > 0;
     const acceptVisibleOrders = () => {
         if (!hasSelectedOrders) {
             toast.info("주문확인할 주문을 선택하세요.");
@@ -674,6 +671,15 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
         const targetOrders = selectedOrders;
         handleBulkAcceptOrders(targetOrders.filter((order) => order.status === "NEW").map((order) => order.id));
     };
+    const cancelSelectedNewOrders = () => {
+        if (!hasSelectedOrders) {
+            toast.info("주문취소할 주문을 선택하세요.");
+            return;
+        }
+
+        handleBulkCancelOrders(selectedCancelableNewOrders.map((order) => order.id));
+        setBulkCancelConfirmOpen(false);
+    };
 
     const commonAction = (
         <Button variant="outline" className="h-10 border-slate-200 bg-white shadow-none hover:border-sky-200 hover:bg-sky-50" onClick={handleCollectOrders}>
@@ -682,44 +688,30 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
     );
 
     const actionContent = activeView === "new" ? (
-        <Button onClick={acceptVisibleOrders} disabled={!hasSelectedOrders}>
-            주문확인
-        </Button>
+        <>
+            <Button onClick={acceptVisibleOrders} disabled={!hasSelectedOrders}>
+                주문확인
+            </Button>
+            <Button variant="outline" className="border-red-200 bg-white text-red-600 shadow-none hover:border-red-300 hover:bg-red-50 hover:text-red-700" onClick={() => setBulkCancelConfirmOpen(true)} disabled={!hasSelectedCancelableNewOrders}>
+                주문취소
+            </Button>
+        </>
     ) : activeView === "preparing" ? (
         null
     ) : activeView === "waiting" ? (
         <>
-            <div className="flex items-center gap-1 rounded-md border border-slate-200 bg-white p-1 shadow-sm">
-                <Button
-                    type="button"
-                    size="sm"
-                    variant={waitingInvoiceFilter === "all" ? "default" : "ghost"}
-                    className="h-8 whitespace-nowrap px-3"
-                    onClick={() => setWaitingInvoiceFilter("all")}
-                >
-                    전체 {waitingInvoiceCounts.all}
-                </Button>
-                <Button
-                    type="button"
-                    size="sm"
-                    variant={waitingInvoiceFilter === "with" ? "default" : "ghost"}
-                    className="h-8 whitespace-nowrap px-3"
-                    onClick={() => setWaitingInvoiceFilter("with")}
-                >
-                    송장 있음 {waitingInvoiceCounts.with}
-                </Button>
-                <Button
-                    type="button"
-                    size="sm"
-                    variant={waitingInvoiceFilter === "without" ? "default" : "ghost"}
-                    className="h-8 whitespace-nowrap px-3"
-                    onClick={() => setWaitingInvoiceFilter("without")}
-                >
-                    송장 없음 {waitingInvoiceCounts.without}
-                </Button>
-            </div>
+            <Select value={waitingInvoiceFilter} onValueChange={(value) => setWaitingInvoiceFilter(value as WaitingInvoiceFilter)}>
+                <SelectTrigger className="h-10 w-[150px] border-slate-200 bg-white shadow-sm">
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                    <SelectItem value="all">전체 {waitingInvoiceCounts.all}</SelectItem>
+                    <SelectItem value="with">송장 있음 {waitingInvoiceCounts.with}</SelectItem>
+                    <SelectItem value="without">송장 없음 {waitingInvoiceCounts.without}</SelectItem>
+                </SelectContent>
+            </Select>
             <Button variant="outline" className="h-10 border-slate-200 bg-white shadow-none hover:border-sky-200 hover:bg-sky-50" onClick={() => collectDomesticInvoices("manual", hasSelectedOrders ? selectedOrderIds : visibleBaseOrders.map((order) => order.id))} disabled={!hasCollectableInvoice}>
-                송장 수집
+                소싱라이프 송장 수집
             </Button>
             <Button className="h-10 bg-sky-600 shadow-sm hover:bg-sky-700" onClick={sendVisibleInvoices} disabled={!hasSendableInvoice}>
                 배송중 처리
@@ -765,29 +757,6 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
                     교환 {claimTypeCounts.exchange}
                 </Button>
             </div>
-            <div className="mr-1 flex items-center gap-1 rounded-md border bg-white p-1">
-                <Button
-                    type="button"
-                    size="sm"
-                    variant={claimStageFilter === "all" ? "default" : "ghost"}
-                    className="h-8 whitespace-nowrap px-3"
-                    onClick={() => setClaimStageFilter("all")}
-                >
-                    현재단계 전체 {claimStageCounts.all}
-                </Button>
-                {claimStageStatuses.map((status) => (
-                    <Button
-                        key={status}
-                        type="button"
-                        size="sm"
-                        variant={claimStageFilter === status ? "default" : "ghost"}
-                        className="h-8 whitespace-nowrap px-3"
-                        onClick={() => setClaimStageFilter(status)}
-                    >
-                        {ORDER_STATUS_LABELS[status]} {claimStageCounts[status]}
-                    </Button>
-                ))}
-            </div>
         </div>
     ) : (
         null
@@ -805,7 +774,7 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
             <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 shadow-sm">
                 <Switch id="auto-domestic-collection-waiting" checked={autoDomesticCollection} onCheckedChange={setAutoDomesticCollection} />
                 <Label htmlFor="auto-domestic-collection-waiting" className="whitespace-nowrap text-xs text-slate-700">
-                    자동수집 {autoDomesticCollection ? "ON" : "OFF"}
+                    소싱라이프 송장 자동 수집 {autoDomesticCollection ? "ON" : "OFF"}
                 </Label>
             </div>
             <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 shadow-sm">
@@ -819,35 +788,54 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
         null
     );
 
-    const title = activeView === "all" ? "주문수집" : `주문수집 - ${viewLabels[activeView]}`;
+    const title = activeView === "claims" ? "취소/반품/교환" : "주문관리";
     const tableColumns = orderColumns;
 
     return (
-        <div className="space-y-3">
-            <div className="rounded-md border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                        <h1 className="text-xl font-bold tracking-tight text-slate-950">{title}</h1>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                        <span className="rounded bg-slate-100 px-2.5 py-1 font-medium text-slate-700">표시 {orders.length}건</span>
-                        <span className="rounded bg-slate-100 px-2.5 py-1 font-medium text-slate-700">전체 {visibleBaseOrders.length}건</span>
-                        {hasSelectedOrders && (
-                            <span className="rounded bg-sky-100 px-2.5 py-1 font-medium text-sky-700">선택 {selectedOrderIds.length}건</span>
-                        )}
+        <div className="min-h-svh bg-white">
+            <div className="border-b border-slate-100 px-6 py-5 xl:px-8">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="max-w-4xl">
+                        <h1 className="text-[24px] font-extrabold tracking-tight text-slate-950">{title}</h1>
                     </div>
                 </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-3 px-6 py-4 xl:px-8">
                 <OrderSearch
                     baseData={visibleBaseOrders}
                     onSearch={setOrders}
                     commonAction={commonAction}
                 />
 
+                {!isClaimView && (
+                    <div className="flex flex-wrap items-center gap-6 border-b border-slate-100 pt-2">
+                        {collectionTabs.map((tab) => {
+                            const isActive = activeView === tab.view;
+                            return (
+                                <Link
+                                    key={tab.view}
+                                    href={tab.href}
+                                    className={cn(
+                                        "flex h-10 items-center gap-2 border-b-2 border-transparent text-sm font-bold text-slate-500 transition hover:text-slate-900",
+                                        isActive && "border-emerald-500 text-emerald-600",
+                                    )}
+                                >
+                                    <span>{viewLabels[tab.view]}</span>
+                                    <span className={cn(
+                                        "rounded-md bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500",
+                                        isActive && "bg-emerald-50 text-emerald-600",
+                                    )}>
+                                        {statusCounts[tab.view]}
+                                    </span>
+                                </Link>
+                            );
+                        })}
+                    </div>
+                )}
+
                 {(actionContent || optionContent) && (
-                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-2">
                             {actionContent}
                         </div>
@@ -859,12 +847,33 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
             </div>
 
             {isClaimView && (
-                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+                <div className="mx-6 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900 xl:mx-8">
                     취소/반품/교환은 구매자가 요청했거나 마켓에서 수집된 클레임만 확인합니다. 판매자 직접 주문취소 건은 이 목록에 노출하지 않습니다.
                 </div>
             )}
 
-            <OrderTable data={orders} columns={tableColumns} selectable={!isClaimView} onRowSelectionChange={setRowSelection} />
+            <div className="px-6 pb-6 xl:px-8">
+                <OrderTable data={orders} columns={tableColumns} selectable={!isClaimView} onRowSelectionChange={setRowSelection} onSaveRecipientInfo={handleSaveRecipientInfo} />
+            </div>
+
+            <Dialog open={bulkCancelConfirmOpen} onOpenChange={setBulkCancelConfirmOpen}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>주문취소 확인</DialogTitle>
+                        <DialogDescription>
+                            선택한 신규주문 {selectedCancelableNewOrders.length}건을 주문취소 처리합니다. 계속 진행할까요?
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setBulkCancelConfirmOpen(false)}>
+                            닫기
+                        </Button>
+                        <Button className="bg-red-600 hover:bg-red-700" onClick={cancelSelectedNewOrders} disabled={!hasSelectedCancelableNewOrders}>
+                            주문취소
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
