@@ -1,4 +1,4 @@
-# AGENTS Guide - jumumpangpang
+﻿# AGENTS Guide - jumumpangpang
 
 This file is for autonomous coding agents working in this repository.
 It is intentionally operational and evidence-based (from project config and code).
@@ -22,7 +22,7 @@ It is intentionally operational and evidence-based (from project config and code
 - `docs/`: Product and architecture notes.
 
 ## Product Planning Docs
-- Current MVP source of truth: `docs/00_문서맵/00_문서맵_주문팡팡_소싱라이프_최종기획.md`.
+- Current MVP source of truth: `docs/00_문서맵/00_문서맵_주문팡팡_소싱라이프.md`.
 - Start from the document map above, then update only the affected files under `docs/01_서비스기획/` through `docs/09_와이어프레임/`.
 - Historical references to `docs/08_주문수집소싱라이프_MVP기획/` are not current for this repository; that folder is not part of the active doc set.
 - The MVP planning docs are intentionally split by topic so agents can update only the affected part.
