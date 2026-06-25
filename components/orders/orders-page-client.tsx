@@ -198,7 +198,6 @@ function createSellerCanceledOrder(order: Order, canceledAt: string): Order {
 
 export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
     const [allOrders, setAllOrders] = useState<Order[]>(mockOrders);
-    const [autoDomesticCollection, setAutoDomesticCollection] = useState(false);
     const [autoInvoiceSend, setAutoInvoiceSend] = useState(false);
     const [autoSourcingLifeShipping, setAutoSourcingLifeShipping] = useState(false);
     const [waitingInvoiceFilter, setWaitingInvoiceFilter] = useState<WaitingInvoiceFilter>("all");
@@ -387,14 +386,14 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
         }));
 
         if (sendNow) {
-            toast.success(`${order.marketOrderId} 주문의 수동구매와 배송중 처리를 완료했습니다.`);
+            toast.success(`${order.marketOrderId} 주문의 직접 구매와 배송중 처리를 완료했습니다.`);
             return;
         }
         if (syncedInvoice) {
-            toast.success(`${order.marketOrderId} 주문의 수동구매를 완료하고 송장번호를 저장했습니다.`);
+            toast.success(`${order.marketOrderId} 주문의 직접 구매를 처리하고 송장번호를 저장했습니다.`);
             return;
         }
-        toast.success(`${order.marketOrderId} 주문의 수동구매를 완료하고 발송대기로 이동했습니다.`);
+        toast.success(`${order.marketOrderId} 주문의 직접 구매를 처리하고 발송대기로 이동했습니다.`);
     }, []);
 
     const handleSourcingAndAcceptOrder = useCallback((order: Order, match: SourcingLifeMatch) => {
@@ -608,58 +607,18 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
         [handleSaveSourcingMatch, handleCompleteSourcingPayment, handleCompleteManualPurchase, handleSourcingAndAcceptOrder, handleAcceptOrder, handleCancelOrder, handleApproveCancelClaim, handleRejectCancelClaim, handleSendSingleInvoice, handleSaveInvoice, handleSaveRecipientInfo],
     );
 
-    const waitingOrders = useMemo(() => {
-        return allOrders.filter((order) => order.status === "READY_TO_SHIP");
-    }, [allOrders]);
-
     const selectedOrders = useMemo(() => {
         return orders.filter((order) => rowSelection[order.id]);
     }, [orders, rowSelection]);
     const selectedOrderIds = selectedOrders.map((order) => order.id);
     const hasSelectedOrders = selectedOrderIds.length > 0;
 
-    const collectDomesticInvoices = useCallback((mode: "auto" | "manual", orderIds?: string[]) => {
-        const sourceOrders = orderIds?.length
-            ? waitingOrders.filter((order) => orderIds.includes(order.id))
-            : waitingOrders;
-        const targets = sourceOrders.filter((order) => !order.domesticInvoice && order.sourcingLifeOrderId);
-
-        if (targets.length === 0) {
-            if (mode === "manual") toast.info("소싱라이프 주문번호가 있고 국내송장이 없는 주문만 송장 수집할 수 있습니다.");
-            return;
-        }
-
-        const invoices = targets.map((order, index) => createDummyInvoice(order.id, index, undefined, mode));
-
-        invoices.forEach(saveSyncedInvoice);
-        setAllOrders((current) => applyCachedState(current, [], [], invoices));
-
-        if (mode === "manual") {
-            toast.success(`송장 수집 완료: 국내송장 ${invoices.length}건을 소싱라이프 주문번호 기준으로 가져왔습니다.`);
-        }
-        if (autoInvoiceSend) {
-            window.setTimeout(() => handleSendInvoice(invoices.map((invoice) => invoice.orderId), "auto"), 0);
-        }
-    }, [autoInvoiceSend, handleSendInvoice, waitingOrders]);
-
-    useEffect(() => {
-        if (!autoDomesticCollection || activeView !== "waiting") return;
-
-        const timer = window.setInterval(() => {
-            collectDomesticInvoices("auto");
-        }, 8000);
-
-        return () => window.clearInterval(timer);
-    }, [activeView, autoDomesticCollection, collectDomesticInvoices]);
-
     const sendVisibleInvoices = () => {
         handleSendInvoice(hasSelectedOrders ? selectedOrderIds : visibleBaseOrders.map((order) => order.id));
     };
 
     const invoiceActionOrders = hasSelectedOrders ? selectedOrders : visibleBaseOrders;
-    const collectActionOrders = hasSelectedOrders ? selectedOrders : visibleBaseOrders;
     const hasSendableInvoice = invoiceActionOrders.some((order) => order.domesticInvoice && !order.domesticInvoice.uploadedToMarketAt);
-    const hasCollectableInvoice = collectActionOrders.some((order) => !order.domesticInvoice && order.sourcingLifeOrderId);
     const selectedCancelableNewOrders = selectedOrders.filter((order) => order.status === "NEW");
     const hasSelectedCancelableNewOrders = selectedCancelableNewOrders.length > 0;
     const acceptVisibleOrders = () => {
@@ -710,9 +669,6 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
                     <SelectItem value="without">송장 없음 {waitingInvoiceCounts.without}</SelectItem>
                 </SelectContent>
             </Select>
-            <Button variant="outline" className="h-10 border-slate-200 bg-white shadow-none hover:border-sky-200 hover:bg-sky-50" onClick={() => collectDomesticInvoices("manual", hasSelectedOrders ? selectedOrderIds : visibleBaseOrders.map((order) => order.id))} disabled={!hasCollectableInvoice}>
-                소싱라이프 송장 수집
-            </Button>
             <Button className="h-10 bg-sky-600 shadow-sm hover:bg-sky-700" onClick={sendVisibleInvoices} disabled={!hasSendableInvoice}>
                 배송중 처리
             </Button>
@@ -766,24 +722,16 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
         <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 shadow-sm">
             <Switch id="auto-sourcing-life-shipping-preparing" checked={autoSourcingLifeShipping} onCheckedChange={setAutoSourcingLifeShipping} />
             <Label htmlFor="auto-sourcing-life-shipping-preparing" className="whitespace-nowrap text-xs text-slate-700">
-                소싱라이프 송장 수신 시 자동 배송중 처리 {autoSourcingLifeShipping ? "ON" : "OFF"}
+                자동 배송중 처리 {autoSourcingLifeShipping ? "ON" : "OFF"}
             </Label>
         </div>
     ) : activeView === "waiting" ? (
-        <>
-            <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 shadow-sm">
-                <Switch id="auto-domestic-collection-waiting" checked={autoDomesticCollection} onCheckedChange={setAutoDomesticCollection} />
-                <Label htmlFor="auto-domestic-collection-waiting" className="whitespace-nowrap text-xs text-slate-700">
-                    소싱라이프 송장 자동 수집 {autoDomesticCollection ? "ON" : "OFF"}
-                </Label>
-            </div>
-            <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 shadow-sm">
-                <Switch id="auto-invoice-send-waiting" checked={autoInvoiceSend} onCheckedChange={setAutoInvoiceSend} />
-                <Label htmlFor="auto-invoice-send-waiting" className="whitespace-nowrap text-xs text-slate-700">
-                    자동 배송중 처리 {autoInvoiceSend ? "ON" : "OFF"}
-                </Label>
-            </div>
-        </>
+        <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 shadow-sm">
+            <Switch id="auto-invoice-send-waiting" checked={autoInvoiceSend} onCheckedChange={setAutoInvoiceSend} />
+            <Label htmlFor="auto-invoice-send-waiting" className="whitespace-nowrap text-xs text-slate-700">
+                자동 배송중 처리 {autoInvoiceSend ? "ON" : "OFF"}
+            </Label>
+        </div>
     ) : (
         null
     );

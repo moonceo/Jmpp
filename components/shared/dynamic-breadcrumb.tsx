@@ -28,7 +28,7 @@ export function DynamicBreadcrumb() {
         <Breadcrumb>
             <BreadcrumbList>
                 <BreadcrumbItem className="hidden md:block">
-                    <BreadcrumbLink href="/">주문수집소싱라이프</BreadcrumbLink>
+                    <BreadcrumbLink href="/">소싱라이프</BreadcrumbLink>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator className="hidden md:block" />
                 <BreadcrumbItem>

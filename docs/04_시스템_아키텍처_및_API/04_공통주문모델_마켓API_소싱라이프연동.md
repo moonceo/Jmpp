@@ -1,4 +1,4 @@
----
+﻿---
 버전: v1.3
 최종수정일: 2026-06-18
 작성자/승인자: 기획팀
@@ -17,15 +17,19 @@
 
 | 영역 | 현재 구현 |
 |---|---|
-| 주문 원천 | `lib/mock-data/orders.ts`의 mock 주문 |
+| 주문 원천 | 마켓에서 수집된 주문을 가정한 `lib/mock-data/orders.ts`의 mock 주문 |
 | 주문 상태 변경 | `components/orders/orders-page-client.tsx`의 클라이언트 상태 업데이트 |
 | 소싱 매칭 저장 | `jumunpangpang.sourcingMatches` localStorage |
 | 소싱 결제 가정 저장 | `jumunpangpang.sourcingPayments` localStorage |
-| 송장 수집 저장 | `jumunpangpang.syncedInvoices` localStorage |
+| 송장 저장/배송중 처리 | `jumunpangpang.syncedInvoices` localStorage |
 | 데이터 초기화 | 주문 화면 진입 시 mock 재구성, 좌측 `데이터 초기화` 버튼 |
 | 서버 API | 현재 주문 MVP에서는 미구현 |
 | React Query | 의존성은 있으나 주문 MVP 핵심 흐름에는 사용하지 않음 |
 | Zustand | 현재 대시보드 store 중심 |
+
+주문관리는 소싱라이프 내부 기능이지만 주문수집의 원천은 마켓 주문이다.
+소싱라이프에서 직접 생성하거나 주문한 내역은 주문관리의 주문수집 목록에 포함하지 않는다.
+소싱라이프의 구매, 검수, 입고, 물류 상세 처리는 소싱라이프 기존 기능에서 진행하며 주문관리 데이터 모델로 흡수하지 않는다.
 
 ## 3. 마켓 범위
 
@@ -74,8 +78,8 @@
 | 코드 | 라벨 | 정의 |
 |---|---|---|
 | `NEW` | 신규주문 | 마켓 결제완료 주문 수집 후 주문확인 전 |
-| `PREPARING` | 상품준비 | 주문확인 후 소싱라이프 소싱/결제 또는 수동구매 진행 |
-| `READY_TO_SHIP` | 발송대기 | 국내송장 수집, 입력, 배송중 처리 대기 |
+| `PREPARING` | 상품준비 | 주문확인 후 소싱라이프 소싱/결제 또는 직접 구매 진행 |
+| `READY_TO_SHIP` | 발송대기 | 국내송장 입력, 확인, 배송중 처리 대기 |
 | `SHIPPING` | 배송중 | 배송중 처리 완료 |
 | `DELIVERED` | 배송완료 | 배송완료 또는 구매확정 |
 | `CANCELED` | 판매자취소 | 판매자 직접 주문취소 처리 |
@@ -87,7 +91,7 @@
 NEW
 → 주문확인 또는 매칭하기
 → PREPARING
-→ 소싱하기 또는 수동구매 완료
+→ 소싱하기 또는 직접 구매 처리
 → READY_TO_SHIP
 → 국내송장 입력/수집
 → 배송중 처리
@@ -113,8 +117,8 @@ NEW
 | `INVOICE_RECEIVED` | 국내송장 수신 |
 | `HOLD` | 처리 보류 |
 
-주문 목록의 `소싱라이프` 컬럼은 전체 상태를 모두 노출하지 않는다.
-현재 표시는 `-`, `매칭완료`, 소싱라이프 주문번호 링크 중 하나다.
+주문 목록의 `소싱` 컬럼은 전체 상태를 모두 노출하지 않는다.
+현재 표시는 `-`, `매칭완료`, 주문내역 아이콘 링크 중 하나다.
 
 ## 7. 공통 주문 모델
 
@@ -124,14 +128,14 @@ NEW
 |---|---|---|
 | 식별 | `id`, `marketOrderId`, `product.id`, `product.productOrderId` | 검색, 상품정보 표시, 상세 표시 |
 | 마켓 | `marketType`, `storeName` | 판매처 컬럼, 필터 |
-| 상태 | `status`, `sourcingLifeSyncStatus` | 탭, 액션 제어, 소싱라이프 컬럼 |
+| 상태 | `status`, `sourcingLifeSyncStatus` | 탭, 액션 제어, 소싱 컬럼 |
 | 일시 | `orderDate`, `marketPaidAt` | 주문일시, 기간 필터 |
 | 상품 | `product.name`, `product.optionName`, `product.quantity`, `product.thumbnail`, `product.marketLink` | 상품정보, 상세 주문상품 |
 | 금액 | `product.unitPrice`, `paymentPrice`, `expectedCost`, `sourcingLifeActualPayment.amount` | 상세/계산 원천 데이터 |
 | 구매자 | `buyerName`, `buyerPhone`, `buyerId` | 검색, 상세 구매자 |
 | 배송 | `recipient.name`, `recipient.phone`, `recipient.address`, `recipient.personalCustomsCode` | 배송정보 컬럼/상세/수정 |
-| 택배 | `domesticInvoice.carrier`, `domesticInvoice.trackingNumber`, `domesticInvoice.changedTrackingNumber` | 택배정보 컬럼 |
-| 소싱 | `sourcingLifeOrderId`, `sourcingLifeMatch.productName`, `sourcingLifeMatch.optionName`, `sourcingLifeActualPayment.amount` | 소싱라이프 컬럼/상세 |
+| 택배 | `domesticInvoice.carrier`, `domesticInvoice.trackingNumber` | 택배정보 컬럼 |
+| 소싱 | `sourcingLifeOrderId`, `sourcingLifeMatch.productName`, `sourcingLifeMatch.optionName`, `sourcingLifeActualPayment.amount` | 소싱 컬럼/상세 |
 | 클레임 | `claimType`, `claimStatus`, `claimReason`, `previousStatus` | 취소/반품/교환 화면 |
 
 목록에서 숨긴 필드도 원천 데이터와 검색/상세/추후 API 매핑에는 유지한다.
@@ -143,8 +147,7 @@ NEW
 | `주문확인` | `NEW` | `PREPARING`으로 이동 |
 | `매칭하기` | `NEW` | 소싱 매칭 저장 + 주문확인 처리 후 `PREPARING` 이동 |
 | `소싱하기` | `PREPARING` | 후보/옵션/수량 선택 후 모달 내 구매대행 신청/결제 화면 |
-| `수동구매 완료` | `PREPARING` | 발송대기 처리 또는 배송중 처리 |
-| `소싱라이프 송장 수집` | `READY_TO_SHIP` 중 소싱라이프 주문번호 있고 송장 없음 | 송장번호 수집 저장 |
+| `직접 구매 처리` | `PREPARING` | 발송대기 처리 또는 배송중 처리 |
 | `배송중 처리` | `READY_TO_SHIP` 중 송장 있음 | `SHIPPING`으로 이동 |
 | `주문취소` | 일반 주문 | 확인 모달 후 `CANCELED` 처리 |
 | `취소처리` | 취소 클레임 | 취소승인 또는 취소거부 처리 후 클레임 처리값 저장 |
@@ -152,7 +155,7 @@ NEW
 | `교환처리` | 교환 클레임 | 사유와 진행단계 조회 중심 화면 |
 
 배송중 상태에서 송장 수정 API 전송 버튼은 현재 제공하지 않는다.
-변경된 송장번호가 있으면 사용자 확인용으로 표시만 한다.
+변경된 송장번호 항목은 목록과 상세에 표시하지 않는다.
 
 취소 클레임 승인/거부는 현재 프론트 MVP에서 `claimStatus`, `claimProcessedAt`, `failureReason`, `sourcingLifeSyncStatus: HOLD`를 갱신하는 mock 처리로 구현되어 있다.
 반품/교환 클레임은 현재 MVP에서 승인, 회수, 재발송 API를 호출하지 않고 조회 중심 화면으로 제공한다.
@@ -182,12 +185,11 @@ NEW
 발송대기 화면:
 
 - 송장 필터는 드롭다운으로 `전체`, `송장 있음`, `송장 없음`을 제공한다.
-- `소싱라이프 송장 수집`은 소싱라이프 주문번호가 있고 송장번호가 없는 주문만 대상으로 한다.
-- `소싱라이프 송장 자동 수집`은 송장 자동 조회 토글이다.
-- `자동 배송중 처리`는 송장이 입력 또는 수집되었을 때 배송중 처리를 자동 시도하는 토글이다.
+- 별도 `소싱라이프 송장 수집` 버튼은 제공하지 않는다.
+- `자동 배송중 처리`는 송장이 입력되었을 때 배송중 처리를 자동 시도하는 토글이다.
 - `배송중 처리`는 송장번호가 있는 주문만 대상으로 한다.
 - 체크된 주문이 있으면 전역 액션은 체크된 주문을 우선 대상으로 하고, 없으면 현재 필터로 보이는 발송대기 주문을 대상으로 한다.
-- 조건에 맞지 않는 주문은 체크되어 있어도 송장 수집 또는 배송중 처리 대상에서 제외한다.
+- 조건에 맞지 않는 주문은 체크되어 있어도 배송중 처리 대상에서 제외한다.
 
 국내송장 입력:
 
@@ -199,7 +201,6 @@ NEW
 배송중 화면:
 
 - 택배사와 송장번호를 조회 전용으로 표시한다.
-- 변경된 송장번호가 있으면 번호만 추가 표시한다.
 - 송장 수정 전송 버튼은 제공하지 않는다.
 
 ## 11. 마켓 API 매핑 기준
@@ -227,3 +228,4 @@ NEW
 - 플랫폼 수수료율 설정 화면
 - 마지막 수집/결과 컬럼
 - 별도 계정설정 페이지
+

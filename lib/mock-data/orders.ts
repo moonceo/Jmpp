@@ -656,7 +656,6 @@ export const mockOrders: Order[] = [
             uploadedToMarketAt: format(subHours(now, 1), "yyyy-MM-dd HH:mm"),
             source: "sourcing_life",
             uploadMode: "auto",
-            changedTrackingNumber: "789012345679",
         },
     },
     {

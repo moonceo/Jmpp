@@ -22,6 +22,67 @@ interface SourcingWorkflowDialogProps {
     onCompletePayment?: (order: Order, match: SourcingLifeMatch) => void;
 }
 
+const SOURCING_URL_HOSTS = ["taobao.com", "tmall.com", "tb.cn", "sourcinglife.co.kr"];
+
+function isUrlLike(value: string) {
+    return /^(https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,})/i.test(value.trim());
+}
+
+function parseAllowedProductUrl(value: string) {
+    const normalized = value.trim();
+    if (!normalized) return undefined;
+
+    try {
+        const url = new URL(/^https?:\/\//i.test(normalized) ? normalized : `https://${normalized}`);
+        const host = url.hostname.replace(/^www\./, "").toLowerCase();
+        return SOURCING_URL_HOSTS.some((allowedHost) => host === allowedHost || host.endsWith(`.${allowedHost}`)) ? url : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function buildUrlCandidate(order: Order, source: SourcingMatchCandidate, url: URL, sequence: number): SourcingMatchCandidate {
+    const host = url.hostname.replace(/^www\./, "");
+    const siteLabel = host.includes("sourcinglife") ? "소싱라이프 URL 상품" : "타오바오 URL 상품";
+
+    return {
+        ...source,
+        id: `${order.id}-URL-${sequence}-${host}`,
+        productId: `URL-${sequence}-${host}-${order.id}`,
+        productName: `${siteLabel} - ${order.product.name}`,
+        productNameZh: source.productNameZh,
+        sellerName: host,
+        matchRate: 100,
+    };
+}
+
+function buildKeywordCandidates(order: Order, sources: SourcingMatchCandidate[], keyword: string, sequence: number) {
+    return Array.from({ length: 20 }, (_, index) => {
+        const source = sources[index % sources.length];
+        const variation = sequence * 20 + index + 1;
+
+        return {
+            ...source,
+            id: `${order.id}-KEYWORD-${sequence}-${String(index + 1).padStart(2, "0")}`,
+            productId: `SEARCH-${sequence}-${order.id}-${String(index + 1).padStart(2, "0")}`,
+            productName: `${keyword} 검색 상품 ${index + 1}`,
+            productNameZh: `${source.productNameZh} 搜索结果 ${index + 1}`,
+            sellerName: `${source.sellerName} 검색 ${index + 1}`,
+            matchRate: Math.max(70, 96 - index),
+            priceCny: source.priceCny + variation,
+            priceKrw: source.priceKrw + variation * 189,
+            salesCount: Math.max(120, source.salesCount - variation * 5),
+            options: source.options.map((option, optionIndex) => ({
+                ...option,
+                id: `${option.id}-search-${sequence}-${index + 1}`,
+                priceCny: option.priceCny + variation + optionIndex,
+                priceKrw: option.priceKrw + variation * 189 + optionIndex * 189,
+                stock: option.stock === 0 ? 0 : Math.max(3, option.stock - index),
+            })),
+        };
+    });
+}
+
 function getMissingSourcingLifeFields(order: Order) {
     const missing: string[] = [];
     const customsCode = order.recipient.personalCustomsCode?.trim().toUpperCase() ?? "";
@@ -44,9 +105,21 @@ export function SourcingWorkflowDialog({
     onCompletePayment,
 }: SourcingWorkflowDialogProps) {
     const candidates = useMemo(() => getSourcingCandidates(order?.id ?? ""), [order?.id]);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [addedState, setAddedState] = useState<{ orderId?: string; candidates: SourcingMatchCandidate[]; sequence: number }>({
+        candidates: [],
+        sequence: 0,
+    });
     const [selectedMatchId, setSelectedMatchId] = useState<string | undefined>();
-    const selectedMatch = candidates.find((candidate) => candidate.id === selectedMatchId) ?? candidates[0];
     const [selectedOptionId, setSelectedOptionId] = useState<string | undefined>();
+    const addedCandidates = useMemo(
+        () => (addedState.orderId === order?.id ? addedState.candidates : []),
+        [addedState, order?.id],
+    );
+    const searchSequence = addedState.orderId === order?.id ? addedState.sequence : 0;
+    const displayedCandidates = useMemo(() => [...addedCandidates, ...candidates], [addedCandidates, candidates]);
+
+    const selectedMatch = displayedCandidates.find((candidate) => candidate.id === selectedMatchId) ?? displayedCandidates[0];
     const selectedOption = selectedMatch?.options.find((option) => option.id === selectedOptionId) ?? selectedMatch?.options[0];
     const [showPaymentPage, setShowPaymentPage] = useState(false);
     const [purchaseStep, setPurchaseStep] = useState<"application" | "payment">("application");
@@ -56,13 +129,35 @@ export function SourcingWorkflowDialog({
 
     const missingFields = getMissingSourcingLifeFields(order);
     const hasRequiredInfo = missingFields.length === 0;
+    const searchError = searchQuery.trim() && isUrlLike(searchQuery) && !parseAllowedProductUrl(searchQuery)
+        ? "URL은 타오바오 또는 소싱라이프 상품 URL만 입력할 수 있습니다."
+        : undefined;
 
     const paymentUrl = `https://www.sourcinglife.co.kr/payment?orderId=${order.id}&matchId=${selectedMatch.id}&optionId=${selectedOption.id}`;
-    const directSourcingUrl = `https://www.sourcinglife.co.kr/search?orderId=${order.id}`;
 
     const handleSelectMatch = (candidate: SourcingMatchCandidate) => {
         setSelectedMatchId(candidate.id);
         setSelectedOptionId(candidate.options[0]?.id);
+    };
+
+    const handleFindCandidate = () => {
+        const query = searchQuery.trim();
+        if (!query || searchError) return;
+
+        const nextSequence = searchSequence + 1;
+        const allowedUrl = parseAllowedProductUrl(query);
+        const nextCandidates = allowedUrl
+            ? [buildUrlCandidate(order, candidates[0], allowedUrl, nextSequence)]
+            : buildKeywordCandidates(order, candidates, query, nextSequence);
+
+        setAddedState({
+            orderId: order.id,
+            candidates: [...nextCandidates, ...addedCandidates],
+            sequence: nextSequence,
+        });
+        setSelectedMatchId(nextCandidates[0]?.id);
+        setSelectedOptionId(nextCandidates[0]?.options[0]?.id);
+        setSearchQuery("");
     };
 
     const buildMatch = (): SourcingLifeMatch => ({
@@ -95,6 +190,7 @@ export function SourcingWorkflowDialog({
         if (!nextOpen) {
             setShowPaymentPage(false);
             setPurchaseStep("application");
+            setSearchQuery("");
         }
         onOpenChange(nextOpen);
     };
@@ -261,17 +357,31 @@ export function SourcingWorkflowDialog({
                     </aside>
 
                     <section className="overflow-y-auto p-5">
-                        <div className="mb-4 flex items-center justify-between gap-3">
+                        <div className="mb-4 space-y-3">
                             <h3 className="font-semibold">추천 소싱 상품</h3>
-                            <Button variant="outline" className="h-8 border-orange-300 px-3 text-xs text-orange-700 hover:bg-orange-50" asChild>
-                                <a href={directSourcingUrl} target="_blank" rel="noopener noreferrer">
-                                    소싱라이프에서 직접 찾기
-                                </a>
-                            </Button>
+                            <div>
+                                <div className="flex gap-2">
+                                <Input
+                                    value={searchQuery}
+                                    onChange={(event) => {
+                                        setSearchQuery(event.target.value);
+                                    }}
+                                    onKeyDown={(event) => {
+                                        if (event.key === "Enter") handleFindCandidate();
+                                    }}
+                                    placeholder="키워드 또는 타오바오/소싱라이프 상품 URL 입력"
+                                    className="h-9 bg-white"
+                                />
+                                <Button type="button" className="h-9 shrink-0" disabled={!searchQuery.trim() || Boolean(searchError)} onClick={handleFindCandidate}>
+                                    찾기
+                                </Button>
+                                </div>
+                                {searchError && <div className="mt-1 text-xs font-medium text-red-600">{searchError}</div>}
+                            </div>
                         </div>
 
                         <div className="grid gap-3">
-                            {candidates.map((candidate) => (
+                            {displayedCandidates.map((candidate) => (
                                 <button
                                     key={candidate.id}
                                     type="button"

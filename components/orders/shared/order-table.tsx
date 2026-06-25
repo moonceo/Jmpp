@@ -40,7 +40,7 @@ const ORDER_COLUMN_WIDTHS: Record<string, number> = {
     buyerInfo: 94,
     deliveryInfo: 230,
     marketAccount: 84,
-    sourcingLifeInfo: 88,
+    sourcingLifeInfo: 56,
     invoice: 150,
 };
 
@@ -137,7 +137,6 @@ function RecipientEditDialog({ order, onSaveRecipientInfo }: { order: Order; onS
 
 function OrderDetailPanel({ order, onSaveRecipientInfo }: { order: Order; onSaveRecipientInfo?: (order: Order, recipient: Recipient) => void }) {
     const customsCode = order.recipient.personalCustomsCode?.trim();
-    const changedTrackingNumber = order.domesticInvoice?.changedTrackingNumber?.trim();
     const hasSourcingInfo = Boolean(order.sourcingLifeOrderId || order.sourcingLifeMatch || order.sourcingLifeActualPayment);
 
     return (
@@ -200,12 +199,6 @@ function OrderDetailPanel({ order, onSaveRecipientInfo }: { order: Order; onSave
                 <div className="min-w-0 truncate text-xs font-semibold text-slate-900">
                     {order.domesticInvoice ? `${order.domesticInvoice.carrier}  ${order.domesticInvoice.trackingNumber}` : "-"}
                 </div>
-                {changedTrackingNumber && (
-                    <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
-                        <div className="text-[11px] font-semibold text-amber-700">변경된 송장번호</div>
-                        <div className="mt-0.5 font-mono text-xs font-bold text-amber-800">{changedTrackingNumber}</div>
-                    </div>
-                )}
             </section>
 
             <section className="rounded-md border border-slate-200 bg-white p-3 lg:col-span-4">
@@ -325,7 +318,7 @@ export function OrderTable({
         columnId === "select" && "px-0 text-center [&>button]:mx-auto",
     );
     const shouldIgnoreRowClick = (target: EventTarget | null) => (
-        target instanceof HTMLElement
+        target instanceof Element
         && Boolean(target.closest("button,a,input,textarea,select,[role='button'],[data-radix-popper-content-wrapper]"))
     );
 

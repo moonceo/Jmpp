@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "JMPP 주문관리",
+  title: "소싱라이프 주문관리",
   description: "주문수집, 클레임, 문의, 마켓연동을 관리하는 업무 화면입니다.",
 };
 

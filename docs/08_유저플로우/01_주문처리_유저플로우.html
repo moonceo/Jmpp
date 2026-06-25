@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
@@ -49,9 +49,9 @@ flowchart TD
     E -->|"소싱하기"| F["추천 소싱 상품/옵션/수량 선택"]
     F --> G["모달 내 구매대행 신청/결제"]
     G --> H["발송대기"]
-    E -->|"수동구매 완료"| H
+    E -->|"직접 구매 처리"| H
     H --> I{"송장번호 있음?"}
-    I -->|"없음"| J["소싱라이프 송장 수집 또는 수동 입력"]
+    I -->|"없음"| J["수동 입력"]
     J --> I
     I -->|"있음"| K["배송중 처리"]
     K --> L["배송중"]
@@ -69,8 +69,8 @@ flowchart TD
           <tr><td><code>NEW</code></td><td>신규주문</td><td>매칭하기</td><td>매칭 저장 + 주문확인 후 <code>PREPARING</code></td></tr>
           <tr><td><code>NEW</code></td><td>신규주문</td><td>주문취소</td><td><code>CANCELED</code></td></tr>
           <tr><td><code>PREPARING</code></td><td>상품준비</td><td>소싱하기</td><td><code>READY_TO_SHIP</code> 또는 조건부 <code>SHIPPING</code></td></tr>
-          <tr><td><code>PREPARING</code></td><td>상품준비</td><td>수동구매 완료</td><td>발송대기 처리 또는 배송중 처리</td></tr>
-          <tr><td><code>READY_TO_SHIP</code></td><td>발송대기</td><td>소싱라이프 송장 수집</td><td>송장번호 저장</td></tr>
+          <tr><td><code>PREPARING</code></td><td>상품준비</td><td>직접 구매 처리</td><td>발송대기 처리 또는 배송중 처리</td></tr>
+          <tr><td><code>READY_TO_SHIP</code></td><td>발송대기</td><td>송장번호 수동 입력</td><td>송장번호 저장</td></tr>
           <tr><td><code>READY_TO_SHIP</code></td><td>발송대기</td><td>배송중 처리</td><td>송장번호가 있으면 <code>SHIPPING</code></td></tr>
         </tbody>
       </table>
@@ -103,7 +103,7 @@ flowchart TD
 flowchart TD
     A["소싱라이프 결제"] --> B{"송장번호 수신?"}
     B -->|"없음"| C["발송대기"]
-    B -->|"있음"| D{"송장 수신 시 자동 배송중 처리 ON?"}
+    B -->|"있음"| D{"자동 배송중 처리 ON?"}
     D -->|"OFF"| E["발송대기 + 송장번호 저장"]
     D -->|"ON"| F["배송중"]
         </pre>
@@ -111,11 +111,11 @@ flowchart TD
     </section>
 
     <section>
-      <h2>수동구매 완료</h2>
+      <h2>직접 구매 처리</h2>
       <div class="diagram">
         <pre class="mermaid">
 flowchart TD
-    A["상품준비 > 수동구매 완료"] --> B["택배사/국내 송장번호 입력 선택"]
+    A["상품준비 > 직접 구매 처리"] --> B["택배사/국내 송장번호 입력 선택"]
     B --> C{"운영자 버튼"}
     C -->|"발송대기 처리"| D["발송대기"]
     C -->|"배송중 처리"| E{"송장번호 있음?"}
@@ -128,7 +128,7 @@ flowchart TD
     <section>
       <h2>송장/배송</h2>
       <div class="chips">
-        <span class="chip">소싱라이프 송장 수집: 주문번호 있음 + 송장 없음</span>
+        <span class="chip">송장 직접 입력: 송장 없음</span>
         <span class="chip">배송중 처리: 송장번호 있음</span>
         <span class="chip">배송중 송장 변경 전송 없음</span>
       </div>
@@ -140,3 +140,4 @@ flowchart TD
   </script>
 </body>
 </html>
+

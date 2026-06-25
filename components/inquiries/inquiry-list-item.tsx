@@ -1,6 +1,7 @@
 import { Inquiry } from "@/types/inquiry";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { MARKET_LABELS, MARKET_OUTLINE_BADGE_CLASSES } from "@/lib/constants/orders";
 import { Clock } from "lucide-react";
 import Image from "next/image";
 import { formatDistanceToNow } from "date-fns";
@@ -11,15 +12,12 @@ interface InquiryListItemProps {
     onReply: (inquiry: Inquiry) => void;
 }
 
-const getMarketBadge = (market: string) => {
-    switch (market) {
-        case 'naver': return <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">네이버</Badge>;
-        case 'coupang': return <Badge variant="outline" className="text-red-600 border-red-200 bg-red-50">쿠팡</Badge>;
-        case '11st': return <Badge variant="outline" className="text-red-800 border-red-300 bg-red-50">11번가</Badge>;
-        case 'gmarket': return <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50">지마켓</Badge>;
-        case 'auction': return <Badge variant="outline" className="text-purple-600 border-purple-200 bg-purple-50">옥션</Badge>;
-        default: return <Badge variant="outline">기타</Badge>;
-    }
+const getMarketBadge = (market: Inquiry["marketType"]) => {
+    return (
+        <Badge variant="outline" className={MARKET_OUTLINE_BADGE_CLASSES[market]}>
+            {MARKET_LABELS[market]}
+        </Badge>
+    );
 };
 
 const maskUserId = (id: string) => {

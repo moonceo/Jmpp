@@ -90,9 +90,6 @@ export interface Order {
         uploadedToMarketAt?: string;
         source?: "sourcing_life" | "manual";
         uploadMode?: "auto" | "manual";
-        changedCarrier?: string;
-        changedTrackingNumber?: string;
-        changedAt?: string;
     };
     claimReason?: string;
     failureReason?: string;

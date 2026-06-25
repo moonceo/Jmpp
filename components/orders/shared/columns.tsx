@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { ExternalLink } from "lucide-react";
+import { ClipboardList, ExternalLink } from "lucide-react";
 import Image from "next/image";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SourcingWorkflowDialog } from "@/components/orders/sourcing-workflow-dialog";
-import { MARKET_LABELS, ORDER_STATUS_LABELS, SOURCING_LIFE_STATUS_LABELS } from "@/lib/constants/orders";
+import { MARKET_BADGE_CLASSES, MARKET_LABELS, ORDER_STATUS_LABELS, SOURCING_LIFE_STATUS_LABELS } from "@/lib/constants/orders";
 import { cn } from "@/lib/utils";
 import { Order, Recipient, SourcingLifeMatch } from "@/types/order";
 
@@ -117,7 +117,7 @@ function ProductInfoCell({ order }: { order: Order }) {
 function MarketAccountCell({ order }: { order: Order }) {
     return (
         <div className="min-w-0 space-y-0.5">
-            <div className="inline-flex max-w-full truncate rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-700">{MARKET_LABELS[order.marketType]}</div>
+            <div className={cn("inline-flex max-w-full truncate rounded px-1.5 py-0.5 text-[11px] font-semibold", MARKET_BADGE_CLASSES[order.marketType])}>{MARKET_LABELS[order.marketType]}</div>
             <div className="truncate text-xs leading-4 text-slate-600">{order.storeName}</div>
         </div>
     );
@@ -149,12 +149,14 @@ function SourcingLifeInfoCell({ order }: { order: Order }) {
 
     return (
         <a
-            className="block truncate font-mono text-xs font-semibold text-sky-700 underline-offset-2 hover:underline"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-sky-200 bg-sky-50 text-sky-700 transition hover:border-sky-300 hover:bg-sky-100"
             href={orderUrl}
             target="_blank"
             rel="noopener noreferrer"
+            title="소싱라이프 주문내역 보기"
+            aria-label={`소싱라이프 주문내역 보기 ${order.sourcingLifeOrderId}`}
         >
-            {order.sourcingLifeOrderId}
+            <ClipboardList className="h-4 w-4" />
         </a>
     );
 }
@@ -372,7 +374,6 @@ function InvoiceInlineInput({
     const lastSavedRef = useRef(`${order.domesticInvoice?.carrier ?? ""}:${order.domesticInvoice?.trackingNumber ?? ""}`);
     const canEdit = order.status === "READY_TO_SHIP";
     const shouldAutoSave = order.status === "READY_TO_SHIP";
-    const changedTrackingNumber = order.domesticInvoice?.changedTrackingNumber?.trim();
 
     const saveIfReady = (nextCarrier = carrier, nextTrackingNumber = trackingNumber) => {
         const normalizedTrackingNumber = nextTrackingNumber.trim();
@@ -387,16 +388,8 @@ function InvoiceInlineInput({
     if (!canEdit) {
         return (
             <div className="space-y-1.5 text-xs">
-                <div>
-                    <div className="font-semibold text-slate-900">{order.domesticInvoice?.carrier || "-"}</div>
-                    <div className="mt-0.5 font-mono text-sky-700">{order.domesticInvoice?.trackingNumber || "-"}</div>
-                </div>
-                {changedTrackingNumber && (
-                    <div className="border-t border-slate-100 pt-1.5">
-                        <div className="text-[10px] font-semibold text-slate-500">변경된 송장번호</div>
-                        <div className="mt-0.5 font-mono text-[11px] font-semibold text-amber-700">{changedTrackingNumber}</div>
-                    </div>
-                )}
+                <div className="font-semibold text-slate-900">{order.domesticInvoice?.carrier || "-"}</div>
+                <div className="mt-0.5 font-mono text-sky-700">{order.domesticInvoice?.trackingNumber || "-"}</div>
             </div>
         );
     }
@@ -440,7 +433,7 @@ function InvoiceInlineInput({
 }
 
 function InvoiceActionsCell({ order, actions }: { order: Order; actions: OrderColumnActions }) {
-    const invoiceKey = `${order.domesticInvoice?.carrier ?? ""}:${order.domesticInvoice?.trackingNumber ?? ""}:${order.domesticInvoice?.changedCarrier ?? ""}:${order.domesticInvoice?.changedTrackingNumber ?? ""}`;
+    const invoiceKey = `${order.domesticInvoice?.carrier ?? ""}:${order.domesticInvoice?.trackingNumber ?? ""}`;
     const [syncedInvoiceKey, setSyncedInvoiceKey] = useState(invoiceKey);
     const [carrier, setCarrier] = useState(order.domesticInvoice?.carrier || "CJ대한통운");
     const [trackingNumber, setTrackingNumber] = useState(order.domesticInvoice?.trackingNumber || "");
@@ -512,12 +505,12 @@ function ManualPurchaseButton({ order, actions }: { order: Order; actions: Order
     return (
         <>
             <Button size="sm" variant="outline" className="h-[29px] w-full whitespace-nowrap border-slate-200 bg-white px-1.5 text-[10px] shadow-none hover:border-sky-200 hover:bg-sky-50" onClick={() => setOpen(true)}>
-                수동구매 완료
+                직접 구매 처리
             </Button>
             <Dialog open={open} onOpenChange={setOpen}>
                 <DialogContent className="max-w-md">
                     <DialogHeader>
-                        <DialogTitle>수동구매 완료</DialogTitle>
+                        <DialogTitle>직접 구매 처리</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-3">
                         <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
@@ -655,7 +648,7 @@ export function createColumns(actions: OrderColumnActions): ColumnDef<Order>[] {
         { id: "invoice", header: "택배정보", cell: ({ row }) => <InvoiceActionsCell order={row.original} actions={actions} /> },
         { id: "deliveryInfo", header: "배송정보", cell: ({ row }) => <DeliveryInfoCell order={row.original} actions={actions} /> },
         { id: "marketAccount", header: "판매처", cell: ({ row }) => <MarketAccountCell order={row.original} /> },
-        { id: "sourcingLifeInfo", header: "소싱라이프", cell: ({ row }) => <SourcingLifeInfoCell order={row.original} /> },
+        { id: "sourcingLifeInfo", header: "소싱", cell: ({ row }) => <SourcingLifeInfoCell order={row.original} /> },
     ];
 
     return columns;

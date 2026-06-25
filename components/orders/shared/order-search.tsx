@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { MARKET_LABELS } from "@/lib/constants/orders";
+import { MARKET_BADGE_CLASSES, MARKET_LABELS } from "@/lib/constants/orders";
 import { cn } from "@/lib/utils";
 import { MarketType, Order } from "@/types/order";
 
@@ -49,11 +49,11 @@ const periodOptions: Array<{ value: PeriodFilter; label: string; days?: number }
 ];
 
 const marketIconMeta: Record<MarketType, { label: string; className: string }> = {
-    naver: { label: "N", className: "bg-emerald-500 text-white" },
-    coupang: { label: "C", className: "bg-red-500 text-white" },
-    "11st": { label: "11", className: "bg-orange-500 text-white" },
-    gmarket: { label: "G", className: "bg-blue-500 text-white" },
-    auction: { label: "A", className: "bg-violet-500 text-white" },
+    naver: { label: "N", className: MARKET_BADGE_CLASSES.naver },
+    coupang: { label: "C", className: MARKET_BADGE_CLASSES.coupang },
+    "11st": { label: "11", className: MARKET_BADGE_CLASSES["11st"] },
+    gmarket: { label: "G", className: MARKET_BADGE_CLASSES.gmarket },
+    auction: { label: "A", className: MARKET_BADGE_CLASSES.auction },
 };
 
 function getAccountKey(order: Pick<Order, "marketType" | "storeName">) {
