@@ -5,6 +5,7 @@ export type OrderStatus =
     | "SHIPPING"
     | "DELIVERED"
     | "CANCELED"
+    | "ON_HOLD"
     | "CLAIM";
 
 export type ClaimType = "CANCEL" | "RETURN" | "EXCHANGE";
@@ -19,6 +20,21 @@ export type SourcingLifeSyncStatus =
     | "PAID"
     | "INVOICE_RECEIVED"
     | "HOLD";
+
+export type SourcingProgressStage =
+    | "MATCH_REQUIRED"
+    | "MATCH_PENDING_REVIEW"
+    | "MATCHED"
+    | "PAYMENT_WAITING"
+    | "EXTERNAL_PURCHASE"
+    | "SOURCED"
+    | "CHINA_SHIPPING"
+    | "CUSTOMS_CLEARANCE"
+    | "DOMESTIC_SHIPPING"
+    | "DELIVERED";
+
+export type DeliveryMethod = "DELIVERY" | "DIRECT_DELIVERY";
+export type MarketOrderStatus = "PAYED" | "CANCEL_REQUESTED" | "DELIVERING" | "DELIVERED" | "PURCHASE_DECIDED";
 
 export interface Recipient {
     name: string;
@@ -54,6 +70,14 @@ export interface SourcingLifeMatch {
     paymentUrl?: string;
 }
 
+export interface SourcingForwarderSelection {
+    code: string;
+    name: string;
+    receiverName: string;
+    phone: string;
+    address: string;
+}
+
 export interface Order {
     id: string;
     marketOrderId: string;
@@ -75,6 +99,10 @@ export interface Order {
     expectedCost?: number;
 
     sourcingLifeSyncStatus: SourcingLifeSyncStatus;
+    marketOrderStatus?: MarketOrderStatus;
+    marketPurchaseConfirmedAt?: string;
+    marketDeliveryMethod?: DeliveryMethod;
+    sourcingProgressStage?: SourcingProgressStage;
     sourcingLifeOrderId?: string;
     sourcingLifeSyncedAt?: string;
     sourcingLifeActualPayment?: {
@@ -83,6 +111,8 @@ export interface Order {
         paidAt: string;
     };
     sourcingLifeMatch?: SourcingLifeMatch;
+    sourcingForwarder?: SourcingForwarderSelection;
+    sourcingPaymentRequestedAt?: string;
     domesticInvoice?: {
         carrier: string;
         trackingNumber: string;
@@ -100,4 +130,7 @@ export interface Order {
     sellerCancelReason?: string;
     sellerCanceledAt?: string;
     previousStatus?: Exclude<OrderStatus, "CLAIM" | "CANCELED">;
+    dataSource?: "demo" | "api";
+    version?: string;
+    marketAccountId?: string;
 }

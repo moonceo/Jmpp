@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { ClipboardList, ExternalLink } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import Image from "next/image";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -11,20 +11,32 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { SourcingWorkflowDialog } from "@/components/orders/sourcing-workflow-dialog";
+import {
+    SellerCancelDialog,
+    type SellerCancelIntent,
+} from "@/components/orders/seller-cancel-dialog";
+import {
+    LiveSourcingMappingDialog,
+    type SavedLiveSourcingMapping,
+} from "@/components/orders/live-sourcing-mapping-dialog";
 import { MARKET_BADGE_CLASSES, MARKET_LABELS, ORDER_STATUS_LABELS, SOURCING_LIFE_STATUS_LABELS } from "@/lib/constants/orders";
+import { getSourcingProgressViewMeta, hasCompletedSourcingPurchase, resolveSourcingProgressStage } from "@/lib/sourcing-progress";
 import { cn } from "@/lib/utils";
-import { Order, Recipient, SourcingLifeMatch } from "@/types/order";
+import { Order, Recipient, SourcingForwarderSelection, SourcingLifeMatch, SourcingProgressStage } from "@/types/order";
 
-interface OrderColumnActions {
+export interface OrderColumnActions {
+    onOpenSourcing: (order: Order) => void;
+    onLiveSourcingMappingSaved: (order: Order, mapping: SavedLiveSourcingMapping) => void;
     onSaveSourcingMatch: (order: Order, match: SourcingLifeMatch) => void;
+    onCreateSourcingPaymentWait: (order: Order, match: SourcingLifeMatch, forwarder: SourcingForwarderSelection) => void;
     onCompleteSourcingPayment: (order: Order, match: SourcingLifeMatch) => void;
-    onCompleteManualPurchase: (order: Order, invoice?: ManualPurchaseInvoice, sendNow?: boolean) => void;
+    onCompleteManualPurchase: (order: Order, invoice: ManualPurchaseInvoice) => void;
     onSourcingAndAcceptOrder: (order: Order, match: SourcingLifeMatch) => void;
     onAcceptOrder: (order: Order) => void;
-    onCancelOrder: (order: Order) => void;
+    onCancelOrder: (order: Order, intent: SellerCancelIntent) => boolean | Promise<boolean>;
     onApproveCancelClaim: (order: Order) => void;
     onRejectCancelClaim: (order: Order) => void;
+    onDispatchDirectDelivery: (order: Order) => void;
     onSendInvoice: (order: Order, carrier?: string, trackingNumber?: string) => void;
     onSaveInvoice: (order: Order, carrier: string, trackingNumber: string) => void;
     onSaveRecipientInfo: (order: Order, recipient: Recipient) => void;
@@ -52,6 +64,8 @@ const claimActionLabel = (order: Order) => {
 const customsState = (code?: string) => {
     return code?.trim() && /^P\d{12}$/.test(code.trim().toUpperCase()) ? "통관부호 일치" : "통관부호 불일치";
 };
+
+const hasValidPersonalCustomsCode = (code?: string) => Boolean(code?.trim() && /^P\d{12}$/.test(code.trim().toUpperCase()));
 
 function ProductImageDialog({ order }: { order: Order }) {
     const [open, setOpen] = useState(false);
@@ -116,7 +130,7 @@ function ProductInfoCell({ order }: { order: Order }) {
 
 function MarketAccountCell({ order }: { order: Order }) {
     return (
-        <div className="min-w-0 space-y-0.5">
+        <div className="min-w-0 space-y-1">
             <div className={cn("inline-flex max-w-full truncate rounded px-1.5 py-0.5 text-[11px] font-semibold", MARKET_BADGE_CLASSES[order.marketType])}>{MARKET_LABELS[order.marketType]}</div>
             <div className="truncate text-xs leading-4 text-slate-600">{order.storeName}</div>
         </div>
@@ -134,30 +148,65 @@ function OrderDateCell({ value }: { value: string }) {
     );
 }
 
-function SourcingLifeInfoCell({ order }: { order: Order }) {
-    if (!order.sourcingLifeOrderId) {
-        const isMatched = order.sourcingLifeSyncStatus === "MATCH_SAVED" || order.sourcingLifeSyncStatus === "PAYMENT_READY";
+const SOURCING_STAGE_BADGES: Record<SourcingProgressStage, { label: string; className: string; linked: boolean }> = {
+    MATCH_REQUIRED: { label: "소싱필요", className: "border-amber-200 bg-amber-50 text-amber-700", linked: false },
+    MATCH_PENDING_REVIEW: { label: "소싱 검증대기", className: "border-orange-200 bg-orange-50 text-orange-700", linked: false },
+    MATCHED: { label: "소싱완료", className: "border-lime-200 bg-lime-50 text-lime-700", linked: false },
+    PAYMENT_WAITING: { label: "결제대기", className: "border-amber-200 bg-amber-50 text-amber-700", linked: false },
+    EXTERNAL_PURCHASE: { label: "결제완료", className: "border-emerald-200 bg-emerald-50 text-emerald-700", linked: false },
+    SOURCED: { label: "결제완료", className: "border-emerald-200 bg-emerald-50 text-emerald-700", linked: true },
+    CHINA_SHIPPING: { label: "중국배송중", className: "border-indigo-200 bg-indigo-50 text-indigo-700", linked: true },
+    CUSTOMS_CLEARANCE: { label: "통관 중", className: "border-violet-200 bg-violet-50 text-violet-700", linked: true },
+    DOMESTIC_SHIPPING: { label: "국내 배송중", className: "border-sky-200 bg-sky-50 text-sky-700", linked: true },
+    DELIVERED: { label: "배송완료", className: "border-slate-200 bg-slate-100 text-slate-700", linked: true },
+};
 
-        return (
-            <div className={cn("truncate text-xs font-semibold", isMatched ? "text-emerald-700" : "font-mono text-slate-900")}>
-                {isMatched ? "매칭완료" : "-"}
+function SourcingLifeInfoCell({ order }: { order: Order }) {
+    const stageCode = resolveSourcingProgressStage(order);
+    const stage = SOURCING_STAGE_BADGES[stageCode];
+    const badgeClassName = cn("h-7 rounded-md px-2 text-[11px] font-semibold", stage.className);
+    const marketStatuses = [
+        order.marketOrderStatus === "CANCEL_REQUESTED"
+            ? { label: "마켓 취소요청", className: "border-red-200 bg-red-50 text-red-700" }
+            : undefined,
+        order.marketOrderStatus === "PURCHASE_DECIDED"
+            ? { label: "구매확정", className: "border-emerald-200 bg-emerald-50 text-emerald-700" }
+            : undefined,
+    ].filter((status): status is { label: string; className: string } => Boolean(status));
+
+    if (order.status === "ON_HOLD") {
+        return marketStatuses.length > 0 ? (
+            <div className="flex flex-col items-start gap-1">
+                {marketStatuses.map((status) => (
+                    <Badge key={status.label} variant="outline" className={cn("h-6 px-1.5 text-[10px] font-semibold", status.className)}>{status.label}</Badge>
+                ))}
             </div>
-        );
+        ) : null;
     }
 
-    const orderUrl = `/sourcing-life-order-detail.html?orderId=${encodeURIComponent(order.sourcingLifeOrderId)}`;
+    const stageBadge = stage.linked && order.sourcingLifeOrderId ? (
+        <Badge asChild variant="outline" className={cn(badgeClassName, "transition hover:border-sky-300 hover:bg-sky-100 hover:text-sky-700")}>
+            <a
+                href={`/sourcing-life-order-detail.html?orderId=${encodeURIComponent(order.sourcingLifeOrderId)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="소싱라이프 주문내역 보기"
+                aria-label={`소싱라이프 주문내역 보기 ${order.sourcingLifeOrderId}`}
+            >
+                {stage.label}
+            </a>
+        </Badge>
+    ) : (
+        <Badge variant="outline" className={badgeClassName}>{stage.label}</Badge>
+    );
 
     return (
-        <a
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-sky-200 bg-sky-50 text-sky-700 transition hover:border-sky-300 hover:bg-sky-100"
-            href={orderUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            title="소싱라이프 주문내역 보기"
-            aria-label={`소싱라이프 주문내역 보기 ${order.sourcingLifeOrderId}`}
-        >
-            <ClipboardList className="h-4 w-4" />
-        </a>
+        <div className="flex flex-col items-start gap-1">
+            {stageBadge}
+            {marketStatuses.map((status) => (
+                <Badge key={status.label} variant="outline" className={cn("h-6 px-1.5 text-[10px] font-semibold", status.className)}>{status.label}</Badge>
+            ))}
+        </div>
     );
 }
 
@@ -454,29 +503,68 @@ function InvoiceActionsCell({ order, actions }: { order: Order; actions: OrderCo
                 onTrackingNumberChange={setTrackingNumber}
                 onSaveInvoice={actions.onSaveInvoice}
             />
+            {order.marketDeliveryMethod === "DIRECT_DELIVERY" && (
+                <Badge variant="outline" className="border-violet-200 bg-violet-50 text-[10px] font-semibold text-violet-700">직접전달</Badge>
+            )}
         </div>
     );
 }
 
 function SourcingButton({ order, actions }: { order: Order; actions: OrderColumnActions }) {
-    const [open, setOpen] = useState(false);
-    const enabled = order.status === "NEW" || order.status === "PREPARING";
-    const buttonLabel = order.status === "NEW" ? "매칭하기" : "소싱하기";
+    const [customsMismatchOpen, setCustomsMismatchOpen] = useState(false);
 
-    return (
-        <>
-            <Button size="sm" variant={enabled ? "default" : "ghost"} className="h-[29px] w-full whitespace-nowrap px-1.5 text-[11px] shadow-sm" disabled={!enabled} onClick={() => setOpen(true)}>
+    if (order.dataSource === "api") {
+        return <LiveSourcingMappingDialog
+            order={order}
+            onSaved={(mapping) => actions.onLiveSourcingMappingSaved(order, mapping)}
+        />;
+    }
+
+    const customsCodeValid = hasValidPersonalCustomsCode(order.recipient.personalCustomsCode);
+    const hasCustomsMismatch = order.status === "PREPARING" && !customsCodeValid;
+    const isPaymentWaiting = order.sourcingLifeSyncStatus === "PAYMENT_READY";
+    const buttonLabel = isPaymentWaiting ? "결제하기" : "소싱하기";
+
+    if (hasCustomsMismatch) {
+        return (
+            <>
+            <Button
+                size="sm"
+                variant="outline"
+                className="h-[29px] w-full whitespace-nowrap border-amber-300 bg-amber-50 px-1.5 text-[11px] text-amber-700 shadow-sm hover:bg-amber-100 hover:text-amber-800"
+                onClick={(event) => {
+                    event.stopPropagation();
+                    setCustomsMismatchOpen(true);
+                }}
+            >
                 {buttonLabel}
             </Button>
-            <SourcingWorkflowDialog
-                order={order}
-                open={open}
-                mode={order.status === "NEW" ? "match-only" : "payment"}
-                onOpenChange={setOpen}
-                onConfirmMatch={order.status === "NEW" ? actions.onSourcingAndAcceptOrder : actions.onSaveSourcingMatch}
-                onCompletePayment={actions.onCompleteSourcingPayment}
-            />
-        </>
+            <Dialog open={customsMismatchOpen} onOpenChange={setCustomsMismatchOpen}>
+                <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                        <DialogTitle>통관부호 확인 필요</DialogTitle>
+                        <DialogDescription>개인통관부호가 일치해야 소싱라이프 결제를 진행할 수 있습니다. 배송정보에서 통관부호를 수정한 뒤 다시 시도하세요.</DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button onClick={() => setCustomsMismatchOpen(false)}>확인</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            </>
+        );
+    }
+
+    return (
+        <Button
+            size="sm"
+            className="h-[29px] w-full whitespace-nowrap px-1.5 text-[11px] shadow-sm"
+            onClick={(event) => {
+                event.stopPropagation();
+                actions.onOpenSourcing(order);
+            }}
+        >
+            {buttonLabel}
+        </Button>
     );
 }
 
@@ -487,30 +575,32 @@ function ManualPurchaseButton({ order, actions }: { order: Order; actions: Order
     const normalizedTrackingNumber = trackingNumber.trim();
     const hasInvoice = Boolean(normalizedTrackingNumber);
 
+    if (order.dataSource === "api") {
+        return (
+            <Button size="sm" variant="outline" className="h-[29px] w-full px-1.5 text-[11px]" disabled title="실데이터 직접구매 국내송장 원장 API 연결 후 활성화됩니다.">
+                국내송장 등록 준비
+            </Button>
+        );
+    }
+
     const completeToWaiting = () => {
-        actions.onCompleteManualPurchase(order, hasInvoice ? { carrier, trackingNumber: normalizedTrackingNumber } : undefined, false);
-        setOpen(false);
-    };
-
-    const completeToShipping = () => {
-        if (!hasInvoice) {
-            toast.info("국내송장번호를 입력하세요.");
-            return;
-        }
-
-        actions.onCompleteManualPurchase(order, { carrier, trackingNumber: normalizedTrackingNumber }, true);
+        if (!hasInvoice) return;
+        actions.onCompleteManualPurchase(order, { carrier, trackingNumber: normalizedTrackingNumber });
         setOpen(false);
     };
 
     return (
         <>
             <Button size="sm" variant="outline" className="h-[29px] w-full whitespace-nowrap border-slate-200 bg-white px-1.5 text-[10px] shadow-none hover:border-sky-200 hover:bg-sky-50" onClick={() => setOpen(true)}>
-                직접 구매 처리
+                국내송장 등록
             </Button>
             <Dialog open={open} onOpenChange={setOpen}>
                 <DialogContent className="max-w-md">
                     <DialogHeader>
-                        <DialogTitle>직접 구매 처리</DialogTitle>
+                        <DialogTitle>직접구매 국내송장 등록</DialogTitle>
+                        <DialogDescription>
+                            소싱라이프에서 결제하지 않고 직접 구매한 주문의 국내송장을 등록합니다. 자동 배송중 처리 설정에 따라 발송대기 또는 배송중으로 이동합니다.
+                        </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-3">
                         <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
@@ -544,12 +634,9 @@ function ManualPurchaseButton({ order, actions }: { order: Order; actions: Order
                             />
                         </div>
                     </div>
-                    <DialogFooter className="gap-2 sm:flex-col sm:justify-start">
-                        <Button variant="outline" className="w-full justify-center border-slate-200 bg-white shadow-none" onClick={completeToWaiting}>
-                            발송대기 처리
-                        </Button>
-                        <Button className="w-full justify-center bg-sky-600 shadow-sm hover:bg-sky-700" disabled={!hasInvoice} onClick={completeToShipping}>
-                            배송중 처리
+                    <DialogFooter>
+                        <Button className="w-full justify-center bg-sky-600 shadow-sm hover:bg-sky-700" disabled={!hasInvoice} onClick={completeToWaiting}>
+                            국내송장 등록
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -558,71 +645,177 @@ function ManualPurchaseButton({ order, actions }: { order: Order; actions: Order
     );
 }
 
-function ProcessActionsCell({ order, actions }: { order: Order; actions: OrderColumnActions }) {
-    const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
-    const canAccept = order.status === "NEW";
-    const canSource = order.status === "NEW" || order.status === "PREPARING";
-    const canCompleteManualPurchase = order.status === "PREPARING";
-    const canCancel = order.status === "NEW" || order.status === "PREPARING" || order.status === "READY_TO_SHIP";
-    const canSendInvoice = order.status === "READY_TO_SHIP";
-    const hasDomesticInvoice = Boolean(order.domesticInvoice?.trackingNumber?.trim());
+export function getProcessActionAvailability(
+    order: Pick<Order, "status" | "marketType" | "marketDeliveryMethod" | "marketOrderStatus">
+        & Partial<Pick<Order, "sourcingLifeSyncStatus" | "sourcingProgressStage" | "sourcingLifeOrderId">>,
+) {
+    const blocked = order.status === "ON_HOLD";
+    const sourcingProgressView = getSourcingProgressViewMeta(order);
+    const paymentWaiting = sourcingProgressView?.stage === "PAYMENT_WAITING";
+    const purchaseCompleted = hasCompletedSourcingPurchase(order);
+    const paymentStateMismatch = ["READY_TO_SHIP", "SHIPPING", "DELIVERED"].includes(order.status) && !purchaseCompleted;
+    const canUseDirectDelivery = order.marketType === "naver" || order.marketType === "coupang";
+    const directDeliveryCompleted = order.marketDeliveryMethod === "DIRECT_DELIVERY" && order.marketOrderStatus === "DELIVERING";
 
-    if (order.status === "CLAIM") {
+    return {
+        canAccept: !blocked && order.status === "NEW",
+        canSource: !blocked && (order.status === "NEW" || (order.status === "PREPARING" && (!sourcingProgressView || paymentWaiting))),
+        canViewSourcingProgress: !blocked && Boolean(sourcingProgressView) && !paymentWaiting && purchaseCompleted,
+        sourcingProgressView,
+        canCompleteManualPurchase: !blocked && order.status === "PREPARING" && !paymentWaiting && !purchaseCompleted,
+        canCancel: !blocked
+            && order.marketDeliveryMethod !== "DIRECT_DELIVERY"
+            && (order.status === "NEW" || order.status === "PREPARING" || order.status === "READY_TO_SHIP"),
+        canSendInvoice: !blocked && order.status === "READY_TO_SHIP" && purchaseCompleted,
+        canUseDirectDelivery,
+        directDeliveryCompleted,
+        paymentWaiting,
+        purchaseCompleted,
+        paymentStateMismatch,
+        canDispatchDirectDelivery: !blocked && !paymentWaiting && canUseDirectDelivery && !directDeliveryCompleted,
+    };
+}
+
+export type OrderActionPlacement = "list" | "detail";
+
+export function getProcessActionVisibility(
+    order: Pick<Order, "status" | "marketType" | "marketDeliveryMethod" | "marketOrderStatus">
+        & Partial<Pick<Order, "sourcingLifeSyncStatus" | "sourcingProgressStage" | "sourcingLifeOrderId">>,
+    placement: OrderActionPlacement,
+) {
+    const availability = getProcessActionAvailability(order);
+    const isDetail = placement === "detail";
+
+    return {
+        ...availability,
+        showAccept: availability.canAccept,
+        showSource: availability.canSource,
+        showManualPurchase: isDetail && availability.canCompleteManualPurchase,
+        showDirectDelivery: isDetail && order.status === "PREPARING" && availability.canDispatchDirectDelivery,
+        showSendInvoice: availability.canSendInvoice && !availability.directDeliveryCompleted,
+        showProgressView: isDetail && availability.canViewSourcingProgress,
+        showCancel: availability.canCancel && (isDetail || order.status !== "READY_TO_SHIP"),
+    };
+}
+
+export function getProcessResultLabel(order: Pick<Order, "status" | "sourcingProgressStage" | "claimType" | "claimStatus" | "marketOrderStatus">) {
+    if (order.status === "ON_HOLD") return "처리보류";
+    if (order.status === "CANCELED") return "주문취소";
+    if (order.status === "CLAIM" && order.claimStatus?.includes("완료")) {
+        if (order.claimType === "RETURN") return "반품완료";
+        if (order.claimType === "EXCHANGE") return "교환완료";
+        return "주문취소";
+    }
+    return undefined;
+}
+
+export function OrderProcessActions({
+    order,
+    actions,
+    placement = "list",
+}: {
+    order: Order;
+    actions: OrderColumnActions;
+    placement?: OrderActionPlacement;
+}) {
+    const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+    const {
+        showAccept,
+        showSource,
+        showManualPurchase,
+        showCancel,
+        showSendInvoice,
+        showDirectDelivery,
+        showProgressView,
+        sourcingProgressView,
+        paymentStateMismatch,
+    } = getProcessActionVisibility(order, placement);
+    const processResultLabel = getProcessResultLabel(order);
+
+    if (order.status === "CLAIM" && !processResultLabel) {
         return <ClaimActionDialog order={order} actions={actions} />;
     }
 
-    if (!canAccept && !canSource && !canCompleteManualPurchase && !canCancel && !canSendInvoice) {
-        return <span className="text-xs text-slate-400">-</span>;
+    if (processResultLabel) {
+        return (
+            <Badge variant="outline" className={cn(
+                "h-7 rounded-md px-2 text-[11px] font-semibold",
+                processResultLabel === "처리보류" && "border-orange-200 bg-orange-50 text-orange-700",
+                processResultLabel === "주문취소" && "border-red-200 bg-red-50 text-red-700",
+                !["처리보류", "주문취소"].includes(processResultLabel) && "border-sky-200 bg-sky-50 text-sky-700",
+            )}>
+                {processResultLabel}
+            </Badge>
+        );
+    }
+
+    if (paymentStateMismatch) {
+        return (
+            <Badge variant="outline" className="h-auto min-h-7 whitespace-normal border-amber-300 bg-amber-50 px-2 py-1 text-center text-[10px] font-semibold leading-4 text-amber-700">
+                결제상태 불일치
+            </Badge>
+        );
+    }
+
+    if (!showAccept && !showSource && !showManualPurchase && !showCancel && !showSendInvoice && !showProgressView && !showDirectDelivery) {
+        return placement === "detail" ? (
+            <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">
+                현재 단계에서 처리할 작업이 없습니다.
+            </div>
+        ) : null;
     }
 
     return (
-        <div className="flex flex-col items-stretch gap-1">
-            {canAccept && (
+        <div className={cn(placement === "detail" ? "grid gap-2 sm:grid-cols-2" : "flex flex-col items-stretch gap-1")}>
+            {showAccept && (
                 <Button size="sm" className="h-[29px] w-full whitespace-nowrap px-1.5 text-[11px] shadow-sm" onClick={() => actions.onAcceptOrder(order)}>
                     주문확인
                 </Button>
             )}
-            {canSource && <SourcingButton order={order} actions={actions} />}
-            {canCompleteManualPurchase && <ManualPurchaseButton order={order} actions={actions} />}
-            {canSendInvoice && (
+            {showSource && <SourcingButton order={order} actions={actions} />}
+            {showManualPurchase && <ManualPurchaseButton order={order} actions={actions} />}
+            {showDirectDelivery && (
+                <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-[29px] w-full whitespace-nowrap border-violet-200 bg-white px-1.5 text-[11px] text-violet-700 shadow-none hover:bg-violet-50"
+                    onClick={() => actions.onDispatchDirectDelivery(order)}
+                >
+                    마켓 직접전달
+                </Button>
+            )}
+            {showSendInvoice && (
                 <Button
                     size="sm"
                     className="h-[29px] w-full whitespace-nowrap bg-sky-600 px-1.5 text-[11px] shadow-sm hover:bg-sky-700"
-                    disabled={!hasDomesticInvoice}
                     onClick={() => actions.onSendInvoice(order, order.domesticInvoice?.carrier, order.domesticInvoice?.trackingNumber)}
                 >
                     배송중 처리
                 </Button>
             )}
-            {canCancel && (
+            {showProgressView && sourcingProgressView && (
+                <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-[29px] w-full whitespace-nowrap border-emerald-200 bg-emerald-50 px-1.5 text-[10px] text-emerald-700 shadow-none hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-800"
+                    onClick={() => actions.onOpenSourcing(order)}
+                >
+                    {sourcingProgressView.actionLabel}
+                </Button>
+            )}
+            {showCancel && (
                 <>
                     <Button size="sm" variant="outline" className="h-[29px] w-full whitespace-nowrap border-red-200 bg-white px-1.5 text-[11px] text-red-600 shadow-none hover:border-red-300 hover:bg-red-50 hover:text-red-700" onClick={() => setCancelConfirmOpen(true)}>
                         주문취소
                     </Button>
-                    <Dialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
-                        <DialogContent className="max-w-md">
-                            <DialogHeader>
-                                <DialogTitle>주문취소 확인</DialogTitle>
-                                <DialogDescription>
-                                    {order.marketOrderId} 주문을 주문취소 처리합니다. 계속 진행할까요?
-                                </DialogDescription>
-                            </DialogHeader>
-                            <DialogFooter>
-                                <Button variant="outline" onClick={() => setCancelConfirmOpen(false)}>
-                                    닫기
-                                </Button>
-                                <Button
-                                    className="bg-red-600 hover:bg-red-700"
-                                    onClick={() => {
-                                        actions.onCancelOrder(order);
-                                        setCancelConfirmOpen(false);
-                                    }}
-                                >
-                                    주문취소
-                                </Button>
-                            </DialogFooter>
-                        </DialogContent>
-                    </Dialog>
+                    <SellerCancelDialog
+                        open={cancelConfirmOpen}
+                        onOpenChange={setCancelConfirmOpen}
+                        orderLabel={order.marketOrderId}
+                        orderedQuantity={order.product.quantity}
+                        hasLiveOrders={order.dataSource === "api"}
+                        onSubmit={(intent) => actions.onCancelOrder(order, intent)}
+                    />
                 </>
             )}
         </div>
@@ -642,13 +835,13 @@ export function createColumns(actions: OrderColumnActions): ColumnDef<Order>[] {
             enableSorting: false,
             enableHiding: false,
         },
-        { id: "process", header: "처리하기", cell: ({ row }) => <ProcessActionsCell order={row.original} actions={actions} /> },
+        { id: "sourcingLifeInfo", header: "진행상태", cell: ({ row }) => <SourcingLifeInfoCell order={row.original} /> },
+        { id: "process", header: "처리하기", cell: ({ row }) => <OrderProcessActions order={row.original} actions={actions} /> },
         { accessorKey: "orderDate", header: "주문일시", cell: ({ row }) => <OrderDateCell value={row.original.orderDate} /> },
         { id: "productInfo", header: "상품정보", cell: ({ row }) => <ProductInfoCell order={row.original} /> },
         { id: "invoice", header: "택배정보", cell: ({ row }) => <InvoiceActionsCell order={row.original} actions={actions} /> },
         { id: "deliveryInfo", header: "배송정보", cell: ({ row }) => <DeliveryInfoCell order={row.original} actions={actions} /> },
         { id: "marketAccount", header: "판매처", cell: ({ row }) => <MarketAccountCell order={row.original} /> },
-        { id: "sourcingLifeInfo", header: "소싱", cell: ({ row }) => <SourcingLifeInfoCell order={row.original} /> },
     ];
 
     return columns;

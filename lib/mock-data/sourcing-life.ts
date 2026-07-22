@@ -48,6 +48,7 @@ const baseCandidates: Record<string, Omit<SourcingMatchCandidate, "id" | "produc
                 { id: "white-2000", label: "화이트 / 2000mm", labelZh: "白色 / 2000mm", priceCny: 520, priceKrw: 98280, stock: 32 },
                 { id: "oak-2000", label: "오크 / 2000mm", labelZh: "橡木色 / 2000mm", priceCny: 545, priceKrw: 103005, stock: 18 },
                 { id: "walnut-1800", label: "월넛 / 1800mm", labelZh: "胡桃木色 / 1800mm", priceCny: 498, priceKrw: 94122, stock: 24 },
+                { id: "black-1600", label: "블랙 / 1600mm", labelZh: "黑色 / 1600mm", priceCny: 475, priceKrw: 89775, stock: 11 },
             ],
         },
     ],
@@ -103,6 +104,23 @@ const baseCandidates: Record<string, Omit<SourcingMatchCandidate, "id" | "produc
         },
     ],
     "ORD-20260608-0004": [
+        {
+            productName: "일본 직수입 아보카도 그린 6~10인치 생일 케이크 보온 보냉 가방 (배달용/두꺼운 소재)",
+            productNameZh: "日本进口牛油果绿色6到10寸生日蛋糕保温袋外卖专用保冷冷藏袋加厚",
+            sellerName: "Guangzhou Cold Chain Pack",
+            thumbnail: "/images/product-placeholder.svg",
+            deliveryDays: "2-4일",
+            options: [
+                {
+                    id: "avocado-green-zip-5-waterproof",
+                    label: "지퍼형【아보카도 그린】5인치 방수",
+                    labelZh: "拉链【牛油果绿】5寸防水",
+                    priceCny: 51.25,
+                    priceKrw: 11250,
+                    stock: 68,
+                },
+            ],
+        },
         {
             productName: "빈티지 글라스 무드 조명",
             productNameZh: "复古玻璃氛围台灯",
@@ -180,6 +198,32 @@ export const defaultForwarderProfile: ForwarderProfile = {
     address2: "TB41192",
     postalCode: "264205",
 };
+
+export const forwarderProfiles: ForwarderProfile[] = [
+    defaultForwarderProfile,
+    {
+        code: "sl-weihai-a",
+        name: "소싱라이프 위해 A센터",
+        receiverName: "SL-A센터",
+        phone: "18663144075",
+        country: "중국",
+        province: "산동성 웨이하이시 환취구",
+        address1: "경제기술개발구 해빈남로 28호 A동",
+        address2: "SLA-22018",
+        postalCode: "264205",
+    },
+    {
+        code: "sl-qingdao-b",
+        name: "소싱라이프 청도 B센터",
+        receiverName: "SL-B센터",
+        phone: "18553264076",
+        country: "중국",
+        province: "산동성 칭다오시 청양구",
+        address1: "류팅가도 항안로 16호 B창고",
+        address2: "SLB-10427",
+        postalCode: "266108",
+    },
+];
 
 export function getSourcingCandidates(orderId: string) {
     return sourcingMatchCandidates[orderId] ?? sourcingMatchCandidates["ORD-20260608-0004"];

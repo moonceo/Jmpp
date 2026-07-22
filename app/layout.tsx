@@ -2,9 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-import { AppSidebar } from "@/components/app-sidebar";
+import { ApplicationShell } from "@/components/application-shell";
 import { Providers } from "@/components/providers";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -30,13 +29,7 @@ export default function RootLayout({
     <html lang="ko" className="overflow-x-hidden" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} overflow-x-hidden bg-white antialiased`}>
         <Providers>
-          <SidebarProvider>
-            <AppSidebar />
-            <SidebarInset className="relative bg-white">
-              <SidebarTrigger className="absolute left-0 top-10 z-20 hidden -translate-x-1/2 rounded-full border border-slate-200 bg-white shadow-sm md:inline-flex" />
-              <main className="flex min-h-svh flex-1 flex-col bg-white">{children}</main>
-            </SidebarInset>
-          </SidebarProvider>
+          <ApplicationShell>{children}</ApplicationShell>
         </Providers>
       </body>
     </html>

@@ -25,8 +25,8 @@
   <header>
     <h1>마켓연동 및 주문수집 유저플로우</h1>
     <div class="meta">
-      <span class="badge">버전 v1.3</span>
-      <span class="badge">최종수정일 2026-06-19</span>
+      <span class="badge">버전 v1.4</span>
+      <span class="badge">최종수정일 2026-07-10</span>
       <span class="badge">현재 프론트 구현 기준</span>
       <span class="badge">원본: 02_마켓연동_및_주문수집_유저플로우.md</span>
     </div>
@@ -107,6 +107,23 @@ flowchart TD
     </section>
 
     <section>
+      <h2>단계별 상태 필터</h2>
+      <div class="diagram">
+        <pre class="mermaid">
+flowchart TD
+    A["주문 단계 탭 선택"] --> B["상태 드롭다운 열기"]
+    B --> C["현재 주문 건수와 무관한 단계별 고정 상태 목록"]
+    C --> D{"배송완료 단계?"}
+    D -->|"예"| E["전체 / 배송완료 / 구매확정"]
+    D -->|"아니오"| F["해당 단계의 소싱 진행 상태"]
+    E --> G["선택 상태와 일치하는 주문 조회"]
+    F --> G
+        </pre>
+      </div>
+      <p>구매확정 주문은 배송완료 상태값과 구매확정 상태값을 함께 가지며, 두 필터에서 모두 조회된다. 내부 주문 단계는 배송완료를 유지한다.</p>
+    </section>
+
+    <section>
       <h2>검색/기간 필터</h2>
       <div class="diagram">
         <pre class="mermaid">
@@ -119,10 +136,12 @@ flowchart TD
     A --> G["검색어 입력"]
     G --> H["상품명, 주문번호, 주문자, 수령인 기준 필터"]
     A --> I["마켓/스토어 필터"]
+    A --> K["단계별 상태 필터"]
     D --> J["주문 목록 갱신"]
     F --> J
     H --> J
     I --> J
+    K --> J
         </pre>
       </div>
     </section>

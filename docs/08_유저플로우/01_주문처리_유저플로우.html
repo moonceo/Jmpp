@@ -1,143 +1,82 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>주문처리 유저플로우</title>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({ startOnLoad: true, theme: "neutral" });
+  </script>
   <style>
-    * { box-sizing: border-box; }
-    body { margin: 0; background: #f6f7f9; color: #172033; font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", Arial, sans-serif; line-height: 1.6; }
-    header { padding: 30px 40px 22px; background: #fff; border-bottom: 1px solid #d9e0ea; }
-    h1 { margin: 0 0 8px; font-size: 30px; letter-spacing: 0; }
-    h2 { margin: 0 0 14px; font-size: 20px; letter-spacing: 0; }
-    main { max-width: 1280px; margin: 0 auto; padding: 28px 32px 48px; }
-    section { margin-bottom: 18px; padding: 22px; background: #fff; border: 1px solid #d9e0ea; border-radius: 8px; }
-    .meta, .chips { display: flex; flex-wrap: wrap; gap: 8px; }
-    .badge, .chip { display: inline-flex; align-items: center; min-height: 28px; padding: 4px 10px; border: 1px solid #d9e0ea; border-radius: 6px; background: #fff; font-size: 13px; color: #526176; }
-    .chip { background: #f8fafc; color: #172033; font-weight: 700; }
-    .diagram { overflow: auto; padding: 16px; border: 1px solid #d9e0ea; border-radius: 8px; background: #fbfdff; }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { padding: 10px 12px; border: 1px solid #d9e0ea; text-align: left; vertical-align: top; }
-    th { background: #f1f5f9; }
-    code { padding: 2px 6px; border-radius: 4px; background: #eef2f7; font-family: Consolas, "Courier New", monospace; font-size: 13px; }
-    @media (max-width: 900px) { header { padding: 24px 20px 18px; } main { padding: 20px 16px 36px; } section { padding: 18px; } }
+    body { margin: 0; font-family: Arial, sans-serif; color: #172033; background: #f5f7fa; }
+    main { max-width: 1080px; margin: 0 auto; padding: 32px 20px 64px; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    h2 { margin-top: 32px; font-size: 19px; }
+    p { line-height: 1.65; color: #475569; }
+    section { padding: 20px 0; border-bottom: 1px solid #dbe2ea; }
+    table { width: 100%; border-collapse: collapse; background: #fff; }
+    th, td { padding: 10px 12px; border: 1px solid #dbe2ea; text-align: left; font-size: 14px; }
+    th { background: #eef2f6; }
+    code { color: #075985; }
+    .rule { padding: 14px 16px; border-left: 4px solid #0284c7; background: #fff; line-height: 1.65; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>주문처리 유저플로우</h1>
-    <div class="meta">
-      <span class="badge">버전 v1.2</span>
-      <span class="badge">최종수정일 2026-06-18</span>
-      <span class="badge">현재 프론트 구현 기준</span>
-      <span class="badge">원본: 01_주문처리_유저플로우.md</span>
-    </div>
-  </header>
+<main>
+  <h1>주문처리 유저플로우</h1>
+  <p>소싱라이프·외부 구매, 자동 배송중 처리, 직접전달의 최신 주문 흐름입니다.</p>
 
-  <main>
-    <section>
-      <h2>상태 흐름</h2>
-      <div class="diagram">
-        <pre class="mermaid">
+  <section>
+    <h2>기본 흐름</h2>
+    <pre class="mermaid">
 flowchart TD
-    A["/orders 신규주문"] --> B{"운영자 액션"}
-    B -->|"주문확인"| C["상품준비"]
-    B -->|"매칭하기"| D["소싱 매칭 저장 + 주문확인"]
-    D --> C
-    B -->|"주문취소"| X["판매자취소"]
-    C --> E{"상품준비 액션"}
-    E -->|"소싱하기"| F["추천 소싱 상품/옵션/수량 선택"]
-    F --> G["모달 내 구매대행 신청/결제"]
-    G --> H["발송대기"]
-    E -->|"직접 구매 처리"| H
-    H --> I{"송장번호 있음?"}
-    I -->|"없음"| J["수동 입력"]
-    J --> I
-    I -->|"있음"| K["배송중 처리"]
-    K --> L["배송중"]
-    L --> M["배송완료"]
-        </pre>
-      </div>
-    </section>
+  A["신규주문"] -->|"주문확인"| B["상품준비"]
+  B --> C{"구매 방식"}
+  C -->|"소싱라이프 결제완료"| C1["선택 배송대행지 사이트 열기"]
+  C1 --> C2["주문서 자동입력"]
+  C2 --> C3["접수대기/접수신청"]
+  C3 -->|"국내송장 즉시 발급"| D["구매 완료 + 국내송장"]
+  C -->|"외부 구매"| D
+  D --> E{"자동 배송중 처리"}
+  E -->|"OFF"| F["발송대기"]
+  E -->|"ON + 성공"| G["배송중"]
+  E -->|"ON + 실패"| F
+  F -->|"배송중 처리"| G
+  G --> H["배송완료"]
+    </pre>
+  </section>
 
-    <section>
-      <h2>상태별 액션</h2>
-      <table>
-        <thead><tr><th>상태</th><th>화면</th><th>액션</th><th>결과</th></tr></thead>
-        <tbody>
-          <tr><td><code>NEW</code></td><td>신규주문</td><td>주문확인</td><td><code>PREPARING</code></td></tr>
-          <tr><td><code>NEW</code></td><td>신규주문</td><td>매칭하기</td><td>매칭 저장 + 주문확인 후 <code>PREPARING</code></td></tr>
-          <tr><td><code>NEW</code></td><td>신규주문</td><td>주문취소</td><td><code>CANCELED</code></td></tr>
-          <tr><td><code>PREPARING</code></td><td>상품준비</td><td>소싱하기</td><td><code>READY_TO_SHIP</code> 또는 조건부 <code>SHIPPING</code></td></tr>
-          <tr><td><code>PREPARING</code></td><td>상품준비</td><td>직접 구매 처리</td><td>발송대기 처리 또는 배송중 처리</td></tr>
-          <tr><td><code>READY_TO_SHIP</code></td><td>발송대기</td><td>송장번호 수동 입력</td><td>송장번호 저장</td></tr>
-          <tr><td><code>READY_TO_SHIP</code></td><td>발송대기</td><td>배송중 처리</td><td>송장번호가 있으면 <code>SHIPPING</code></td></tr>
-        </tbody>
-      </table>
-    </section>
-
-    <section>
-      <h2>소싱하기</h2>
-      <div class="diagram">
-        <pre class="mermaid">
+  <section>
+    <h2>직접전달 선처리</h2>
+    <pre class="mermaid">
 flowchart TD
-    A["상품준비 > 소싱하기"] --> B["추천 소싱 상품"]
-    B --> C["한국어/중국어 상품명, 판매처, 원화/위안 상품원가 확인"]
-    C --> D["옵션 선택"]
-    D --> E["한국어 옵션명 + 중국어 옵션명 확인"]
-    E --> F["수량 변경"]
-    F --> G{"품절 옵션?"}
-    G -->|"예"| H["결제 버튼 비활성"]
-    G -->|"아니오"| I["소싱라이프 결제 하기"]
-    I --> J["구매대행 신청 화면"]
-    J --> K["결제 화면"]
-        </pre>
-      </div>
-      <p>신규주문 버튼명은 <strong>매칭하기</strong>, 상품준비 버튼명은 <strong>소싱하기</strong>다.</p>
-    </section>
+  A["상품준비"] -->|"직접전달"| B["마켓 배송중 · 내부 상품준비"]
+  B --> C{"구매 완료 + 송장"}
+  C -->|"소싱라이프"| D["내부 배송중"]
+  C -->|"외부 구매"| D
+  C -->|"송장 없음"| E["완료 차단"]
+  D --> F["실제 국내배송 완료"]
+    </pre>
+  </section>
 
-    <section>
-      <h2>소싱 결제 결과</h2>
-      <div class="diagram">
-        <pre class="mermaid">
-flowchart TD
-    A["소싱라이프 결제"] --> B{"송장번호 수신?"}
-    B -->|"없음"| C["발송대기"]
-    B -->|"있음"| D{"자동 배송중 처리 ON?"}
-    D -->|"OFF"| E["발송대기 + 송장번호 저장"]
-    D -->|"ON"| F["배송중"]
-        </pre>
-      </div>
-    </section>
+  <section>
+    <h2>상태 기준</h2>
+    <table>
+      <thead><tr><th>상태</th><th>기준</th></tr></thead>
+      <tbody>
+        <tr><td><code>PREPARING</code></td><td>구매 완료 전. 직접전달만 먼저 처리한 주문도 포함</td></tr>
+        <tr><td><code>READY_TO_SHIP</code></td><td>구매·송장 완료, 마켓 택배 발송 전</td></tr>
+        <tr><td><code>SHIPPING</code></td><td>마켓 발송 완료 또는 직접전달 + 구매·송장 완료</td></tr>
+        <tr><td><code>DELIVERED</code></td><td>실제 국내송장 배송완료</td></tr>
+      </tbody>
+    </table>
+  </section>
 
-    <section>
-      <h2>직접 구매 처리</h2>
-      <div class="diagram">
-        <pre class="mermaid">
-flowchart TD
-    A["상품준비 > 직접 구매 처리"] --> B["택배사/국내 송장번호 입력 선택"]
-    B --> C{"운영자 버튼"}
-    C -->|"발송대기 처리"| D["발송대기"]
-    C -->|"배송중 처리"| E{"송장번호 있음?"}
-    E -->|"없음"| F["배송중 처리 불가"]
-    E -->|"있음"| G["송장 저장 + 배송중"]
-        </pre>
-      </div>
-    </section>
-
-    <section>
-      <h2>송장/배송</h2>
-      <div class="chips">
-        <span class="chip">송장 직접 입력: 송장 없음</span>
-        <span class="chip">배송중 처리: 송장번호 있음</span>
-        <span class="chip">배송중 송장 변경 전송 없음</span>
-      </div>
-    </section>
-  </main>
-  <script type="module">
-    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-    mermaid.initialize({ startOnLoad: true, securityLevel: "loose", theme: "base" });
-  </script>
+  <section>
+    <h2>필수 규칙</h2>
+    <div class="rule">소싱라이프 연결 배송대지는 접수 즉시 국내송장을 발급하며 접수대기와 접수신청은 같은 단계입니다. 외부 구매도 국내송장이 있어야 완료할 수 있습니다.</div>
+  </section>
+</main>
 </body>
 </html>
-

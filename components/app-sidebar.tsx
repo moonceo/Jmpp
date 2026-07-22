@@ -3,13 +3,12 @@
 import * as React from "react";
 import { Suspense } from "react";
 import {
-    ChevronDown,
     ChevronRight,
     ClipboardList,
     DatabaseBackup,
-    Filter,
     Globe2,
     Heart,
+    LogOut,
     ReceiptText,
     Search,
     ShoppingBag,
@@ -25,7 +24,9 @@ import {
     SidebarMenu,
     SidebarMenuButton,
     SidebarMenuItem,
+    useSidebar,
 } from "@/components/ui/sidebar";
+import { withBrowserSecurity } from "@/lib/client/http";
 import { cn } from "@/lib/utils";
 
 const orderSubMenus = [
@@ -60,25 +61,38 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 function AppSidebarContent({ ...props }: React.ComponentProps<typeof Sidebar>) {
     const pathname = usePathname();
     const searchParams = useSearchParams();
+    const { isMobile, setOpen, setOpenMobile } = useSidebar();
     const view = searchParams.get("view");
     const orderOpen = isOrderArea(pathname);
+    const closeSidebar = () => {
+        if (isMobile) setOpenMobile(false);
+        else setOpen(false);
+    };
     const resetDemoData = () => {
         window.localStorage.removeItem("jumunpangpang.syncedInvoices");
         window.localStorage.removeItem("jumunpangpang.sourcingMatches");
         window.localStorage.removeItem("jumunpangpang.sourcingPayments");
         window.location.reload();
     };
+    const logout = async () => {
+        try {
+            await fetch("/api/auth/logout", withBrowserSecurity({ method: "POST" }));
+        } finally {
+            window.location.assign("/login");
+        }
+    };
 
     return (
         <Sidebar variant="sidebar" collapsible="icon" className="border-r border-slate-200 bg-white" {...props}>
             <SidebarHeader className="border-b border-slate-100 px-3 py-3">
                 <div className="flex h-9 items-center justify-between">
-                    <Link href="/orders" className="text-[22px] font-extrabold tracking-tight text-black">
+                    <Link href="/orders" onClick={closeSidebar} className="text-[22px] font-extrabold tracking-tight text-black">
                         소싱라이프
                     </Link>
                     <button
                         type="button"
                         className="h-8 rounded-md border border-slate-300 bg-white px-3 text-sm font-bold text-slate-900 shadow-sm hover:bg-slate-50"
+                        onClick={closeSidebar}
                     >
                         닫기
                     </button>
@@ -111,7 +125,7 @@ function AppSidebarContent({ ...props }: React.ComponentProps<typeof Sidebar>) {
                             isActive={orderOpen}
                             className="h-12 rounded-md px-4 text-[16px] font-extrabold text-slate-900 transition data-[active=true]:bg-red-50 data-[active=true]:text-[#ff321c] hover:bg-slate-50"
                         >
-                            <Link href="/orders" className="flex items-center gap-3">
+                            <Link href="/orders" onClick={closeSidebar} className="flex items-center gap-3">
                                 <ClipboardList className={cn("size-5 shrink-0", orderOpen ? "text-[#ff321c]" : "text-slate-400")} />
                                 <span>주문관리</span>
                                 <ChevronRight className={cn("ml-auto size-4 transition", orderOpen && "rotate-90 text-[#ff321c]")} />
@@ -127,6 +141,7 @@ function AppSidebarContent({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                     <Link
                                         key={item.title}
                                         href={item.href}
+                                        onClick={closeSidebar}
                                         className={cn(
                                             "flex h-8 items-center rounded-md px-2 text-[13px] font-bold transition",
                                             active ? "bg-red-50 text-[#ff321c]" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
@@ -148,34 +163,21 @@ function AppSidebarContent({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </SidebarContent>
 
             <SidebarFooter className="gap-3 border-t border-slate-100 px-2 py-3">
-                <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-                    <div className="flex items-center gap-2">
-                        <div className="flex h-7 w-10 items-center justify-center rounded-lg bg-red-600 text-[15px] font-black text-yellow-300">
-                            ★
-                        </div>
-                        <div className="min-w-0">
-                            <div className="text-sm font-extrabold text-slate-900">CNY 1元 = 223.95원</div>
-                            <div className="text-xs font-medium text-slate-500">2026-06-17 18:15 (2분 전)</div>
-                        </div>
-                    </div>
-                </div>
-                <button
-                    type="button"
-                    className="flex h-11 items-center justify-between rounded-lg border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-900 shadow-sm hover:bg-slate-50"
-                >
-                    <span className="flex items-center gap-2">
-                        <Filter className="size-4 text-[#ff321c]" />
-                        검색 필터 상세설정
-                    </span>
-                    <ChevronDown className="size-4 text-slate-900" />
-                </button>
                 <button
                     type="button"
                     className="flex h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-slate-50 text-xs font-bold text-slate-500 hover:bg-white"
                     onClick={resetDemoData}
                 >
                     <DatabaseBackup className="size-3.5" />
-                    데이터 초기화
+                    데모 데이터 초기화
+                </button>
+                <button
+                    type="button"
+                    className="flex h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white text-xs font-bold text-slate-600 hover:bg-slate-50"
+                    onClick={logout}
+                >
+                    <LogOut className="size-3.5" />
+                    로그아웃
                 </button>
             </SidebarFooter>
         </Sidebar>

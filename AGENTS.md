@@ -60,6 +60,10 @@ If you add a test runner later, also add and document:
 2. Run `npm run build`.
 3. If a new test setup is introduced, run its targeted single-test command too.
 
+## Demo Data Rule
+- When changing an order workflow, status, action, or related UI, add or update mock orders that demonstrate the changed normal and exceptional paths.
+- Keep the mock orders visible from the affected order view so the change can be checked without API credentials.
+
 ## TypeScript and Imports
 - TypeScript is strict (`"strict": true` in `tsconfig.json`).
 - Prefer explicit interfaces/types for props and domain models.

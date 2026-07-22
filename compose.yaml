@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: jumunpangpang
+      POSTGRES_USER: jumunpangpang_owner
+      POSTGRES_PASSWORD: owner
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jumunpangpang_owner -d jumunpangpang"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - jumunpangpang-postgres:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+
+volumes:
+  jumunpangpang-postgres:

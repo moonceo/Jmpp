@@ -1,7 +1,7 @@
 import { ClaimType, MarketType, OrderStatus, SourcingLifeSyncStatus } from "@/types/order";
 
 export const ORDER_STATUSES = {
-    ALL: ["NEW", "PREPARING", "READY_TO_SHIP", "SHIPPING", "DELIVERED", "CANCELED"] as OrderStatus[],
+    ALL: ["NEW", "PREPARING", "READY_TO_SHIP", "SHIPPING", "DELIVERED", "CANCELED", "ON_HOLD"] as OrderStatus[],
     NEW: ["NEW"] as OrderStatus[],
     PREPARING: ["PREPARING"] as OrderStatus[],
     WAITING: ["READY_TO_SHIP"] as OrderStatus[],
@@ -17,6 +17,7 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
     SHIPPING: "배송중",
     DELIVERED: "배송완료",
     CANCELED: "판매자취소",
+    ON_HOLD: "처리보류",
     CLAIM: "취소/반품/교환",
 };
 
@@ -28,12 +29,12 @@ export const CLAIM_TYPE_LABELS: Record<ClaimType, string> = {
 
 export const SOURCING_LIFE_STATUS_LABELS: Record<SourcingLifeSyncStatus, string> = {
     NOT_LINKED: "소싱 전",
-    MATCHING: "이미지 매칭 중",
-    MATCH_SAVED: "매칭 저장",
+    MATCHING: "소싱 중",
+    MATCH_SAVED: "소싱완료",
     PAYMENT_READY: "결제 가능",
-    PAID: "소싱라이프 결제완료",
+    PAID: "결제완료",
     INVOICE_RECEIVED: "국내송장 수신",
-    HOLD: "처리 보류",
+    HOLD: "소싱 처리보류",
 };
 
 export const MARKET_LABELS = {
@@ -43,6 +44,14 @@ export const MARKET_LABELS = {
     gmarket: "G마켓",
     auction: "옥션",
 } as const;
+
+export const MARKET_ABBREVIATIONS: Record<MarketType, string> = {
+    naver: "N",
+    coupang: "C",
+    "11st": "11",
+    gmarket: "G",
+    auction: "A",
+};
 
 export const MARKET_BADGE_CLASSES: Record<MarketType, string> = {
     naver: "border-transparent bg-[#03C75A] text-white",

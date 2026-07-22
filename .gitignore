@@ -44,3 +44,7 @@ next-env.d.ts
 # agent
 .agent/
 .gemini/
+
+# claude code (local settings, skills are shared)
+.claude/settings.json
+.claude/settings.local.json

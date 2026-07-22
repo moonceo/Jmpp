@@ -22,11 +22,12 @@
     select, input { width:100%; height:38px; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; }
     .row { display:flex; justify-content:space-between; gap:12px; margin:12px 0; font-size:14px; }
     button { width:100%; height:44px; border:0; border-radius:8px; background:#ff3d00; color:white; font-weight:700; }
+    .cancel { margin-top:8px; border:1px solid #fecaca; background:white; color:#dc2626; }
   </style>
 </head>
 <body>
   <div class="modal">
-    <header><h1>소싱하기</h1><p>후보 상품과 옵션을 선택한 뒤 소싱라이프 결제까지 진행합니다.</p></header>
+    <header><h1>소싱하기</h1><p>후보 상품과 옵션을 선택하면 주문확인까지 처리하고 상품준비로 이동합니다.</p></header>
     <div class="body">
       <aside>
         <h2>현재 주문</h2>
@@ -55,7 +56,8 @@
         <div class="row"><span>상품 단가</span><strong>156,492원 (828위안)</strong></div>
         <div class="row"><span>상품 원가 합계</span><strong>156,492원</strong></div>
         <div class="row"><span>결제금액 - 상품원가</span><strong style="color:#047857;">263,508원</strong></div>
-        <button>소싱라이프 결제 하기</button>
+        <button>주문확인</button>
+        <button class="cancel">주문취소</button>
       </aside>
     </div>
   </div>

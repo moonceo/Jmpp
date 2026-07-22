@@ -28,6 +28,7 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { MARKET_LABELS } from "@/lib/constants/orders";
+import { resolveSourcingProgressStage } from "@/lib/sourcing-progress";
 import { cn } from "@/lib/utils";
 import { Order, Recipient } from "@/types/order";
 
@@ -40,7 +41,7 @@ const ORDER_COLUMN_WIDTHS: Record<string, number> = {
     buyerInfo: 94,
     deliveryInfo: 230,
     marketAccount: 84,
-    sourcingLifeInfo: 56,
+    sourcingLifeInfo: 94,
     invoice: 150,
 };
 
@@ -135,8 +136,17 @@ function RecipientEditDialog({ order, onSaveRecipientInfo }: { order: Order; onS
     );
 }
 
-function OrderDetailPanel({ order, onSaveRecipientInfo }: { order: Order; onSaveRecipientInfo?: (order: Order, recipient: Recipient) => void }) {
+function OrderDetailPanel({
+    order,
+    onSaveRecipientInfo,
+    renderDetailActions,
+}: {
+    order: Order;
+    onSaveRecipientInfo?: (order: Order, recipient: Recipient) => void;
+    renderDetailActions?: (order: Order) => React.ReactNode;
+}) {
     const customsCode = order.recipient.personalCustomsCode?.trim();
+    const isExternalPurchase = resolveSourcingProgressStage(order) === "EXTERNAL_PURCHASE";
     const hasSourcingInfo = Boolean(order.sourcingLifeOrderId || order.sourcingLifeMatch || order.sourcingLifeActualPayment);
 
     return (
@@ -199,52 +209,84 @@ function OrderDetailPanel({ order, onSaveRecipientInfo }: { order: Order; onSave
                 <div className="min-w-0 truncate text-xs font-semibold text-slate-900">
                     {order.domesticInvoice ? `${order.domesticInvoice.carrier}  ${order.domesticInvoice.trackingNumber}` : "-"}
                 </div>
-            </section>
-
-            <section className="rounded-md border border-slate-200 bg-white p-3 lg:col-span-4">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="text-sm font-bold text-slate-900">소싱상품</div>
-                    <div className="flex min-w-0 items-center gap-1.5 text-xs">
-                        <span className="shrink-0 text-[11px] font-semibold text-slate-400">소싱라이프 주문번호</span>
-                        <span className="min-w-0 truncate font-mono font-semibold text-slate-800">{order.sourcingLifeOrderId || "-"}</span>
-                    </div>
-                </div>
-                {hasSourcingInfo ? (
-                    <div className="grid gap-3 lg:grid-cols-[72px_minmax(0,1fr)]">
-                        <div className="relative h-[72px] w-[72px] overflow-hidden rounded-md border border-slate-200 bg-white">
-                            {order.sourcingLifeMatch?.thumbnail ? (
-                                <Image src={order.sourcingLifeMatch.thumbnail} alt={order.sourcingLifeMatch.productName ?? order.product.name} fill sizes="80px" className="object-cover" />
-                            ) : (
-                                <div className="flex h-full items-center justify-center text-[11px] text-slate-400">이미지 없음</div>
-                            )}
-                        </div>
-                        <div className="grid min-w-0 content-start gap-2">
-                            <div className="flex min-w-0 items-center gap-1.5">
-                                <span className="shrink-0 text-[11px] font-semibold text-slate-400">상품명</span>
-                                <span className="min-w-0 truncate text-xs font-medium text-slate-800">{order.sourcingLifeMatch?.productName || "-"}</span>
-                            </div>
-                            <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
-                                <div className="flex min-w-0 items-center gap-1.5">
-                                    <span className="shrink-0 text-[11px] font-semibold text-slate-400">옵션명</span>
-                                    <span className="min-w-0 truncate text-xs font-medium text-slate-800">{order.sourcingLifeMatch?.optionName || "-"}</span>
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                    <span className="shrink-0 text-[11px] font-semibold text-slate-400">수량</span>
-                                    <span className="text-xs font-medium text-slate-800">{order.sourcingLifeMatch?.quantity ? `${order.sourcingLifeMatch.quantity}개` : "-"}</span>
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                    <span className="shrink-0 text-[11px] font-semibold text-slate-400">소싱금액</span>
-                                    <span className="text-xs font-medium text-slate-800">{formatCurrency(order.sourcingLifeActualPayment?.amount ?? order.sourcingLifeMatch?.estimatedCost)}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">
-                        소싱라이프 연결 정보가 없습니다.
-                    </div>
+                {order.marketDeliveryMethod === "DIRECT_DELIVERY" && (
+                    <Badge variant="outline" className="mt-2 border-violet-200 bg-violet-50 text-[10px] font-semibold text-violet-700">직접전달</Badge>
                 )}
             </section>
+
+            <div className="grid gap-3 lg:col-span-4 lg:grid-cols-[minmax(240px,1fr)_minmax(0,2fr)]">
+                <section className="rounded-md border border-slate-200 bg-white p-3">
+                    <div className="mb-3 text-sm font-bold text-slate-900">처리하기</div>
+                    {renderDetailActions?.(order) ?? (
+                        <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">
+                            현재 단계에서 처리할 작업이 없습니다.
+                        </div>
+                    )}
+                </section>
+
+                <section className="rounded-md border border-slate-200 bg-white p-3">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                        <div className="text-sm font-bold text-slate-900">소싱상품</div>
+                        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 text-xs">
+                            {isExternalPurchase ? (
+                                <Badge variant="outline" className="border-orange-200 bg-orange-50 text-[10px] font-semibold text-orange-700">
+                                    외부구매
+                                </Badge>
+                            ) : (
+                                <div className="flex min-w-0 items-center gap-1.5">
+                                    <span className="shrink-0 text-[11px] font-semibold text-slate-400">소싱라이프 주문번호</span>
+                                    <span className="min-w-0 truncate font-mono font-semibold text-slate-800">{order.sourcingLifeOrderId || "-"}</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    {isExternalPurchase ? (
+                        <div className="flex items-start gap-3 rounded-md border border-orange-200 bg-orange-50/70 px-3 py-3">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-sm font-bold text-orange-600 ring-1 ring-orange-200">외</div>
+                            <div className="min-w-0">
+                                <div className="text-xs font-bold text-slate-900">외부 구매처 결제완료</div>
+                                <div className="mt-1 text-[11px] leading-4 text-slate-600">
+                                    소싱라이프를 거치지 않고 외부 구매처에서 결제한 주문입니다. 소싱라이프 상품과 주문번호는 생성되지 않습니다.
+                                </div>
+                            </div>
+                        </div>
+                    ) : hasSourcingInfo ? (
+                        <div className="grid gap-3 lg:grid-cols-[72px_minmax(0,1fr)]">
+                            <div className="relative h-[72px] w-[72px] overflow-hidden rounded-md border border-slate-200 bg-white">
+                                {order.sourcingLifeMatch?.thumbnail ? (
+                                    <Image src={order.sourcingLifeMatch.thumbnail} alt={order.sourcingLifeMatch.productName ?? order.product.name} fill sizes="80px" className="object-cover" />
+                                ) : (
+                                    <div className="flex h-full items-center justify-center text-[11px] text-slate-400">이미지 없음</div>
+                                )}
+                            </div>
+                            <div className="grid min-w-0 content-start gap-2">
+                                <div className="flex min-w-0 items-center gap-1.5">
+                                    <span className="shrink-0 text-[11px] font-semibold text-slate-400">상품명</span>
+                                    <span className="min-w-0 truncate text-xs font-medium text-slate-800">{order.sourcingLifeMatch?.productName || "-"}</span>
+                                </div>
+                                <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
+                                    <div className="flex min-w-0 items-center gap-1.5">
+                                        <span className="shrink-0 text-[11px] font-semibold text-slate-400">옵션명</span>
+                                        <span className="min-w-0 truncate text-xs font-medium text-slate-800">{order.sourcingLifeMatch?.optionName || "-"}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="shrink-0 text-[11px] font-semibold text-slate-400">수량</span>
+                                        <span className="text-xs font-medium text-slate-800">{order.sourcingLifeMatch?.quantity ? `${order.sourcingLifeMatch.quantity}개` : "-"}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="shrink-0 text-[11px] font-semibold text-slate-400">소싱금액</span>
+                                        <span className="text-xs font-medium text-slate-800">{formatCurrency(order.sourcingLifeActualPayment?.amount ?? order.sourcingLifeMatch?.estimatedCost)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">
+                            소싱라이프 연결 정보가 없습니다.
+                        </div>
+                    )}
+                </section>
+            </div>
         </div>
     );
 }
@@ -254,6 +296,7 @@ interface OrderTableProps {
     columns: ColumnDef<Order>[];
     onRowSelectionChange?: (rowSelection: Record<string, boolean>) => void;
     onSaveRecipientInfo?: (order: Order, recipient: Recipient) => void;
+    renderDetailActions?: (order: Order) => React.ReactNode;
     selectable?: boolean;
 }
 
@@ -262,6 +305,7 @@ export function OrderTable({
     columns,
     onRowSelectionChange,
     onSaveRecipientInfo,
+    renderDetailActions,
     selectable = false,
 }: OrderTableProps) {
     const [sorting, setSorting] = React.useState<SortingState>([{ id: "orderDate", desc: true }]);
@@ -368,7 +412,7 @@ export function OrderTable({
                                     {expandedOrderId === row.id && (
                                         <TableRow className="border-b border-slate-200 bg-slate-50 hover:bg-slate-50">
                                             <TableCell colSpan={row.getVisibleCells().length} className="p-0">
-                                                <OrderDetailPanel order={row.original} onSaveRecipientInfo={onSaveRecipientInfo} />
+                                                <OrderDetailPanel order={row.original} onSaveRecipientInfo={onSaveRecipientInfo} renderDetailActions={renderDetailActions} />
                                             </TableCell>
                                         </TableRow>
                                     )}

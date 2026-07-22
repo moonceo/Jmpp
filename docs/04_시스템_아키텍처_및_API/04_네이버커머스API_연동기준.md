@@ -1,6 +1,6 @@
 ---
-버전: v1.0
-최종수정일: 2026-06-19
+버전: v1.1
+최종수정일: 2026-07-13
 작성자/승인자: 기획팀
 상태: [Draft - 공식 문서 기반 연동 기준]
 ---
@@ -10,10 +10,10 @@
 ## 1. 문서 목적
 
 이 문서는 소싱라이프 내부 주문관리 MVP에서 스마트스토어 주문을 실제 네이버 커머스API와 연동할 때 필요한 기준을 정리한다.
-현재 프론트 MVP는 mock data와 localStorage 기반으로 동작하므로, 이 문서는 구현 코드가 아니라 추후 백엔드/API 연동 설계 기준이다.
+현재 스마트스토어 주문·클레임 읽기와 주문확인·발송 command 코어는 서버에 구현되어 있다. 이 문서는 구현 계약과 아직 실계정 UAT가 필요한 쓰기 capability를 함께 관리한다.
 
 기준 문서는 네이버 커머스API 공식 문서다.
-확인 기준 버전은 2026-06-19 현재 문서에 노출된 최신 버전 `2.80.0 (2026-06-10)`이다.
+확인 기준 버전은 2026-07-10 현재 문서에 노출된 최신 버전 `2.82.0 (2026-07-07)`이다.
 
 ## 2. 공식 문서 기준
 
@@ -36,11 +36,13 @@
 |---|---|
 | 인증/토큰 발급 | `intro-인증.md`, `POST /v1/oauth2/token - 인증 토큰 발급 요청` |
 | API 오류/호출 규격 | `intro-RESTful API.md`, `intro-문제 해결.md`, `intro-제약사항.md` |
+| 호출 제한 | https://apicenter.commerce.naver.com/docs/restriction |
 | 주문 상태 매핑 | `[주문]-주문-상태-변경-흐름도` |
 | 주문수집 | `GET /v1/pay-order/seller/product-orders/last-changed-statuses - 변경 상품 주문 내역 조회` |
 | 주문 상세 조회 | `POST /v1/pay-order/seller/product-orders/query - 상품 주문 상세 내역 조회` |
 | 주문확인 | `POST /v1/pay-order/seller/product-orders/confirm - 발주 확인 처리` |
 | 배송중 처리 | `POST /v1/pay-order/seller/product-orders/dispatch - 발송 처리` |
+| 직접전달 | 발송 처리의 `deliveryMethod: DIRECT_DELIVERY` |
 | 판매자 주문취소 요청 | `POST /v1/pay-order/seller/product-orders/{productOrderId}/claim/cancel/request - 취소 요청` |
 | 고객 취소요청 승인 | `POST /v1/pay-order/seller/product-orders/{productOrderId}/claim/cancel/approve - 취소 요청 승인` |
 | 택배사/물류사 기준 | `GET /v1/logistics/logistics-companies - 물류사 연동 정보 조회`, 발송 처리 문서의 `deliveryCompanyCode` |
@@ -54,8 +56,8 @@
 | 마켓연동 | 필요 | 스마트스토어 계정의 인증 정보 저장 및 토큰 발급 준비 |
 | 주문수집 | 필요 | 변경 상품 주문 내역 조회 후 상세 조회 |
 | 주문확인 | 필요 | 발주 확인 처리 |
-| 매칭하기/소싱하기 | 직접 연동 없음 | 소싱라이프 내부 주문관리 흐름 |
-| 발송대기 | 필요 | 국내송장 확보 후 발송 처리 |
+| 소싱하기 | 직접 연동 없음 | 신규주문 매칭과 상품준비 구매대행을 상태별로 처리하는 소싱라이프 내부 주문관리 흐름 |
+| 발송대기 | 필요 | 구매·국내송장 저장 완료 후 발송 처리 |
 | 배송중 | 조회 중심 | 네이버 송장 수정 전송과 변경된 송장번호 표시는 MVP 제외 |
 | 배송완료 | 조회 중심 | 변경 피드 또는 상세 조회 결과를 내부 `DELIVERED`로 반영 |
 | 취소/반품/교환 | 조회 및 일부 처리 | 취소 요청/승인 API는 후보, 반품/교환 처리는 MVP에서 조회 중심 |
@@ -167,7 +169,7 @@ https://api.commerce.naver.com/external
 |---|---|---|
 | `NEW` | 신규주문 | 결제 완료 후 발주 확인 전 주문 |
 | `PREPARING` | 상품준비 | 발주 확인 완료 후 소싱/구매 진행 중 |
-| `READY_TO_SHIP` | 발송대기 | 국내송장 확보 또는 입력 대기 |
+| `READY_TO_SHIP` | 발송대기 | 구매·국내송장 저장 완료 후 네이버 발송 처리 대기 |
 | `SHIPPING` | 배송중 | 네이버 발송 처리 완료 |
 | `DELIVERED` | 배송완료 | 배송완료 또는 구매확정 계열 결과 |
 | `CANCELED` | 취소 | 취소 완료 주문 |
@@ -183,7 +185,7 @@ https://api.commerce.naver.com/external
 |---|---|---|
 | `productOrderStatus=PAYED`, 클레임 없음, 발주확인 전 | `NEW` | 신규주문 탭 |
 | `productOrderStatus=PAYED`, 발주확인 완료 후 소싱/구매 진행 중 | `PREPARING` | 상품준비 탭 |
-| `productOrderStatus=PAYED`, 내부 국내송장 확보 또는 입력 완료 전/후 | `READY_TO_SHIP` | 발송대기 탭 |
+| `productOrderStatus=PAYED`, 내부 구매·국내송장 저장 완료, 네이버 발송 처리 전 | `READY_TO_SHIP` | 발송대기 탭 |
 | `productOrderStatus=DELIVERING`, `lastChangedStatusCode=DISPATCHED` | `SHIPPING` | 배송중 탭 |
 | `productOrderStatus=DELIVERED` 또는 `PURCHASE_DECIDED` | `DELIVERED` | 배송완료 탭 |
 | `productOrderStatus=CANCELED` 또는 `claimStatus=CANCEL_DONE` | `CANCELED` | 취소 완료 |
@@ -253,7 +255,7 @@ LLM용 공식 인덱스 기준으로 발송 처리에는 `deliveryMethod`, 택�
 
 주문관리 적용 기준:
 - 발송대기 탭에서 송장번호가 있는 주문만 배송중 처리 대상이다.
-- 송장번호가 없으면 개별 `배송중 처리` 버튼은 비활성화한다.
+- 정상 발송대기 주문은 송장을 보유한다. 송장이 누락된 비정상 데이터는 개별 `배송중 처리`를 비활성화하고 오류로 분류한다.
 - 상단 `배송중 처리`는 선택 여부와 관계없이 송장번호가 있는 주문만 처리한다.
 - API 성공 시 내부 상태를 `SHIPPING`으로 변경한다.
 - 배송중 상태에서는 네이버 송장 수정 API 전송 버튼을 제공하지 않는다.
@@ -276,8 +278,8 @@ LLM용 공식 인덱스 기준으로 발송 처리에는 `deliveryMethod`, 택�
 
 적용 기준:
 - 네이버가 허용하지 않는 상태에서는 API 실패로 처리하고 내부 상태를 변경하지 않는다.
-- 취소 요청 성공 시 내부 주문은 클레임 화면에서 확인할 수 있도록 `CLAIM` 또는 `CANCELED` 계열로 매핑한다.
-- 현재 프론트 MVP의 주문취소 확인 모달은 유지하되, 실제 API 연동 시 취소 사유 코드 입력이 필요할 수 있다.
+- 판매자 취소 요청 접수 성공은 최종 취소가 아니므로 내부 주문을 `ON_HOLD`, 마켓 처리 상태를 `CANCEL_REQUESTED`로 보존한다. 이후 수집에서 상품주문 최종 `CANCELED`가 확인될 때만 종료 상태로 전환한다.
+- 주문취소 모달은 공식 7개 사유 코드와 상세 사유·부분수량을 입력하며, 서버 command schema와 같은 허용목록을 계약 테스트로 대조한다.
 
 ### 9.1 판매자 취소 요청 구현 기준
 
@@ -289,7 +291,7 @@ LLM용 공식 인덱스 기준으로 발송 처리에는 `deliveryMethod`, 택�
 | `productOrderId` | path의 네이버 상품 주문 번호 |
 | `cancelReason` | 필수 취소 사유 코드 |
 | `cancelDetailedReason` | 선택, 상세 사유 |
-| `cancelQuantity` | 선택, 미입력 시 전체 수량 취소 |
+| `cancelQuantity` | 선택. 전체 취소는 필드를 전송하지 않으며 provider의 현재 `remainQuantity` 전체로 해석한다. 명시한 부분수량은 `remainQuantity` 이하여야 한다. |
 
 취소 사유 코드:
 
@@ -306,8 +308,16 @@ LLM용 공식 인덱스 기준으로 발송 처리에는 `deliveryMethod`, 택�
 주문관리 적용:
 - 신규주문, 상품준비, 발송대기에서 주문취소 버튼을 노출할 수 있다.
 - 네이버 API 호출 전에는 네이버 상세 조회로 현재 `productOrderStatus`와 클레임 상태를 확인한다.
-- 취소 요청 성공 후에는 취소 승인 API가 필요한지 응답과 현재 클레임 상태를 기준으로 판단한다.
+- 판매자 취소 요청과 구매자가 신청한 취소승인은 별도 흐름이다. 판매자 취소 응답이나 인과가 불명확한 claim을 근거로 구매자 취소승인 API를 연쇄 호출하지 않는다.
 - API 실패 시 내부 상태를 `CANCELED`로 선반영하지 않는다.
+
+현재 구현(2026-07-13):
+- 단건 공식 endpoint와 공통 성공·실패 응답 파싱, `quantityClaimCompatibility=true` 상세 선조회, 로컬 수량과 provider `initialQuantity` 일치, 명시적 부분취소 수량과 `remainQuantity` 상한, 기존 클레임·배송상태 충돌 검사를 구현했다.
+- 주문 화면은 위 7개 공식 사유와 2~500자 상세 사유를 요구하며 단건 부분수량과 일괄 주문별 전체수량을 검증한다. 비공식 사유는 브라우저와 서버 양쪽에서 거부한다.
+- 최종 `productOrderStatus=CANCELED`만 적용 완료로 판정한다. 현재·deprecated·완료 `CANCEL/ADMIN_CANCEL` 흔적은 명령과의 인과가 증명되기 전 `INDETERMINATE`이며, `CANCEL_REJECT`도 미적용이나 재실행 가능 근거로 사용하지 않는다. 반품·교환 흔적은 충돌로 처리한다.
+- 네이버 판매자 취소 쓰기는 provider 멱등키가 없으므로 causal baseline과 request channel allowlist가 구현되기 전 모든 `SELLER_CANCEL UNKNOWN`을 수동 대사로 유지하고 절대 자동 재호출하지 않는다. 접수 성공은 내부 상품 `ON_HOLD`, 마켓 처리 상태 `CANCEL_REQUESTED`로 기록하고 주문확인·매칭·소싱·외부구매·직접전달·발송·재취소를 차단한다.
+- 기본 capability는 `MANUAL_FALLBACK`이다. OWNER/ADMIN이 실계정 UAT 증빙을 승인해 계정별 `SELLER_CANCEL = API / PASSED`가 된 경우에만 명령 접수와 worker 실행이 모두 허용된다.
+- 아직 실계정 UAT를 수행하지 않았으므로 운영 API 호출이 가능하다고 판정하지 않는다. 구매자 취소요청 승인과 반품·교환 쓰기도 계속 조회 전용이다.
 
 ## 10. 반품/교환 기준
 
@@ -383,10 +393,10 @@ LLM용 공식 인덱스 기준으로 발송 처리에는 `deliveryMethod`, 택�
 ## 14. 현재 MVP 미구현/보류
 
 - 실제 OAuth 토큰 발급
-- 네이버 주문 변경분 수집
-- 네이버 발주 확인 API 호출
-- 네이버 발송 처리 API 호출
-- 네이버 취소 요청/취소 승인 API 호출
+- 네이버 자동 주문 변경분 수집의 실계정 대사·장시간 운전 UAT
+- 네이버 발주 확인·발송 처리 API의 실계정 UAT와 계정별 capability 승격
+- 네이버 판매자 취소 요청 API의 실계정 UAT, causal baseline, request channel allowlist
+- 구매자 취소 요청 승인 API 호출
 - 반품/교환 자동 처리
 - 네이버 배송중 송장 수정 전송
 - 네이버 API 오류 코드별 UI 메시지 매핑
@@ -401,3 +411,63 @@ LLM용 공식 인덱스 기준으로 발송 처리에는 `deliveryMethod`, 택�
 5. 부분 실패 처리 시 재시도 정책
 6. 주문수집 기준 시각 저장 위치와 재수집 범위
 7. API 호출 제한 대응 정책
+
+## 16. 2026-07-10 실서비스 추가 기준
+
+### 16-1. 직접전달
+
+네이버 공식 발송 처리 API는 배송방법으로 `DIRECT_DELIVERY`를 제공한다.
+
+- 공식 문서: https://apicenter.commerce.naver.com/docs/commerce-api/current/seller-dispatch-product-orders-pay-order-seller
+- 요청 단위는 상품주문 ID다.
+- 일반 택배의 국내송장과 직접전달용 마켓 제출값은 별도 모델로 저장한다.
+- API 성공 전 내부 마켓 상태를 배송중으로 변경하지 않는다.
+- 직접전달이 먼저 성공했어도 소싱 구매와 실제 국내배송이 남아 있으면 내부 작업단계는 상품준비를 유지한다.
+- 직접전달과 실제 국내송장 추적 결과를 같은 상태로 덮어쓰지 않는다.
+
+### 16-2. 호출 제한
+
+호출 제한은 단일 고정 숫자로 가정하지 않는다. API, 애플리케이션, 판매자 규모에 따라 달라질 수 있으므로 다음을 적용한다.
+
+- 응답 헤더와 429를 기준으로 계정·API별 적응형 rate limiter를 사용한다.
+- 429는 지수 backoff와 jitter 후 재시도한다.
+- 변경분 조회 결과는 최대 응답 건수와 cursor를 기준으로 끝까지 페이지 처리한다.
+- cursor는 주문 upsert가 성공한 트랜잭션에서만 전진한다.
+- 수동 주문수집도 예약 수집과 동일한 계정별 제한기를 사용한다.
+
+### 16-3. 솔루션 온보딩
+
+개별 자체개발 연결과 다수 셀러에게 제공하는 솔루션 연동은 심사·동의 방식이 다를 수 있다.
+
+- 공식 입점 절차: https://apicenter.commerce.naver.com/docs/solution-doc/1000/%EB%A7%88%EC%BC%93-%EC%9E%85%EC%A0%90-%ED%94%84%EB%A1%9C%EC%84%B8%EC%8A%A4
+- 소싱라이프가 제3자 셀러용 SaaS로 운영될 때 필요한 솔루션마켓 입점과 API 그룹 권한을 출시 전 확인한다.
+- 개인사업자 셀러의 동의·연결 방식은 실계정 온보딩 테스트로 확정한다.
+
+### 16-4. 클레임 capability
+
+공식 API에는 취소 승인·요청, 반품 승인·보류·보류해제·거부·요청, 교환 수거완료·재배송·보류·보류해제·거부가 존재한다.
+
+실서비스 UI는 현재 상품주문 상태와 claim 상태를 조회한 뒤 실행 가능한 액션만 표시한다. 반품·교환을 조회 전용으로 남겨둔 현재 mock 범위는 실서비스 완료 기준을 충족하지 않는다.
+
+현재 수집 구현(2026-07-12):
+
+- 상품주문 상세 조회 본문에 `quantityClaimCompatibility=true`를 명시한다.
+- `currentClaim.cancel|return|exchange`와 `completedClaims[]`를 공통 claim case/line/event로 변환한다. deprecated 최상위 `cancel|return|exchange`는 `currentClaim`이 없을 때만 호환 입력으로 읽는다.
+- `PURCHASE_DECISION_HOLDBACK`은 취소·반품·교환 원장에 넣지 않는다. `ADMIN_CANCEL`은 마켓 요청 취소로 구분해 수집한다.
+- `requestQuantity`가 상품주문 수량을 초과하거나 `claimId`가 없으면 임의 보정·임시 ID 생성 없이 `CLAIM_INBOUND_SKIPPED` 감사와 PARTIAL 결과로 격리한다.
+- 자유서술 사유는 claim 전용 암호화 context로 저장하고 API에는 `[PROTECTED]`만 노출한다. 수거지 주소·전화번호는 정규화 payload와 감사 metadata에 넣지 않는다.
+- 수집 worker는 주문 sync lease의 tenant/account를 주입하며 provider 응답의 tenant 식별값을 신뢰하지 않는다.
+- 구매자 클레임의 승인·거절·보류·회수·재배송 쓰기 capability는 실계정 UAT 전까지 `UNSUPPORTED/UNAVAILABLE`이다. 판매자 취소는 별도 outbound command이며 현재 `MANUAL_FALLBACK`이다.
+
+### 16-5. 자동 주문수집 scheduler
+
+현재 구현(2026-07-12)은 전용 `WORKER_DATABASE_URL` 역할 검증 후 inbound·scheduler·outbound loop를 병렬 실행한다.
+
+- `is_active=true`, `auth_status=CONNECTED`인 네이버 계정만 `SCHEDULED / ORDERS` 실행 대상으로 삼는다.
+- 마지막 terminal 실행(`SUCCEEDED`, `PARTIAL`, `FAILED`, `CANCELED`, `DEAD`) 종료 후 설정 간격이 지난 계정만 예약한다.
+- `sync_runs_one_active_stream_uidx`와 같은 partial conflict 조건으로 계정·stream별 `PENDING/RUNNING/RETRY` 중복 실행을 차단한다.
+- 실행 생성 시 `window_end`를 고정하고, 기존 cursor watermark와 overlap 또는 초기 lookback으로 `window_start`를 정한다. 재시도도 같은 실행의 고정 구간을 사용한다.
+- 예약 실행과 `SYSTEM / SYNC_RUN_SCHEDULED` 감사로그는 같은 DB 트랜잭션에서 생성한다.
+- 주기·간격·배치·최대 시도는 `NAVER_SYNC_SCHEDULER_POLL_INTERVAL_MS`, `NAVER_ORDER_SYNC_INTERVAL_MS`, `NAVER_SYNC_SCHEDULER_BATCH_SIZE`, `NAVER_SCHEDULED_SYNC_MAX_ATTEMPTS`로 설정한다.
+
+이는 코드·단위·SQL 계약 테스트 기준 구현 상태다. 실제 네이버 판매자 계정의 누락률·호출 제한·장시간 운전 UAT는 완료되지 않았으며, 쿠팡·11번가·ESM에는 자동 수집 scheduler와 생산 adapter가 아직 구현되지 않았다.

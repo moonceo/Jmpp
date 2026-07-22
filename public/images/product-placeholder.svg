@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-labelledby="title description">
+  <title id="title">상품 이미지 없음</title>
+  <desc id="description">상품 이미지가 제공되지 않았음을 나타내는 중립적인 자리표시자</desc>
+  <rect width="160" height="160" rx="16" fill="#f1f5f9"/>
+  <rect x="35" y="39" width="90" height="82" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="4"/>
+  <circle cx="62" cy="65" r="9" fill="#cbd5e1"/>
+  <path d="M45 105 69 80l17 17 13-13 16 21H45Z" fill="#cbd5e1"/>
+</svg>

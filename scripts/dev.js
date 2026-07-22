@@ -3,7 +3,8 @@ const net = require("node:net");
 const { spawn } = require("node:child_process");
 
 const startPort = Number(process.env.PORT || 3000);
-const host = process.env.HOSTNAME || "0.0.0.0";
+const host = process.env.HOST || "127.0.0.1";
+const extraArgs = process.argv.slice(2);
 
 function canUsePort(port, listenHost) {
   return new Promise((resolve) => {
@@ -42,7 +43,7 @@ async function main() {
 
   console.log(`Starting Next.js dev server on port ${port}`);
 
-  const child = spawn(process.execPath, [nextBin, "dev", "-H", host, "-p", String(port)], {
+  const child = spawn(process.execPath, [nextBin, "dev", "-H", host, "-p", String(port), ...extraArgs], {
     env: { ...process.env, PORT: String(port) },
     stdio: "inherit",
   });
