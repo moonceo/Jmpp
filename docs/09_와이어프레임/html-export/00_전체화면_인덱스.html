@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>전체 화면 인덱스</title>
+  <style>
+*{box-sizing:border-box}body{margin:0;background:#f6f7f9;color:#111827;font-family:Arial,"Noto Sans KR","Apple SD Gothic Neo",sans-serif}.app{display:grid;grid-template-columns:244px minmax(0,1fr);min-height:100vh}.sidebar{background:#fff;border-right:1px solid #e5e7eb;padding:18px 12px}.brand{font-size:24px;font-weight:900;letter-spacing:-.03em;margin:2px 8px 16px}.switch{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:8px;padding:4px;margin-bottom:18px}.switch span{height:36px;display:grid;place-items:center;border-radius:6px;font-weight:800;color:#64748b}.switch .active{background:#ff321c;color:#fff}.nav-item,.nav-sub{display:flex;align-items:center;height:42px;border-radius:7px;padding:0 12px;margin:3px 0;text-decoration:none;color:#1f2937;font-weight:800}.nav-item.current{background:#fff1f0;color:#ff321c}.nav-sub{height:32px;margin-left:24px;border-left:1px solid #e5e7eb;border-radius:0;padding-left:14px;color:#64748b;font-size:13px}.disabled{opacity:.55}.main{padding:28px;min-width:0}.topbar{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:20px}.topbar h1{margin:0;font-size:28px;letter-spacing:-.03em}.topbar p{margin:7px 0 0;color:#64748b}.index-link,.button{display:inline-flex;align-items:center;justify-content:center;height:36px;padding:0 13px;border:1px solid #d1d5db;border-radius:7px;background:#fff;color:#111827;text-decoration:none;font-size:13px;font-weight:800}.button.primary{background:#111827;color:#fff;border-color:#111827}.button.red{background:#ff321c;color:#fff;border-color:#ff321c}.toolbar,.panel,.modal,.popover{background:#fff;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 1px 2px rgba(15,23,42,.04)}.toolbar{display:flex;justify-content:space-between;gap:12px;padding:14px;margin-bottom:14px}.tabs{display:flex;gap:6px;flex-wrap:wrap}.tab{height:34px;padding:0 12px;border-radius:999px;border:1px solid #e5e7eb;background:#fff;color:#475569;font-weight:800;font-size:13px}.tab.active{background:#111827;color:#fff;border-color:#111827}.search{height:36px;min-width:260px;border:1px solid #d1d5db;border-radius:7px;padding:0 12px;color:#64748b;background:#fff}.table{width:100%;border-collapse:separate;border-spacing:0;background:#fff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden}.table th,.table td{padding:13px 14px;border-bottom:1px solid #edf0f3;text-align:left;font-size:13px;vertical-align:middle}.table th{background:#f8fafc;color:#64748b;font-weight:900}.table tr:last-child td{border-bottom:0}.badge{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:999px;color:#fff;font-size:12px;font-weight:900}.smartstore{background:#03c75a}.coupang{background:#1f4e9d}.eleven{background:#e60012}.gmarket{background:#00a7e1}.auction{background:#ef3e2e}.status{display:inline-flex;height:24px;align-items:center;border-radius:999px;padding:0 8px;background:#eef2ff;color:#3730a3;font-size:12px;font-weight:800}.grid{display:grid;gap:14px}.grid.cols3{grid-template-columns:repeat(3,minmax(0,1fr))}.grid.cols4{grid-template-columns:repeat(4,minmax(0,1fr))}.card{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px}.card h3{margin:0 0 8px;font-size:15px}.card .big{font-size:26px;font-weight:900}.muted{color:#64748b}.modal-wrap{min-height:calc(100vh - 150px);display:grid;place-items:center;background:linear-gradient(rgba(15,23,42,.58),rgba(15,23,42,.58));border-radius:10px;padding:28px}.modal{width:min(1120px,100%);overflow:hidden}.modal-head{padding:18px 22px;border-bottom:1px solid #e5e7eb}.modal-head h2{margin:0;font-size:21px}.modal-body{padding:20px}.split{display:grid;grid-template-columns:280px 1fr 280px;gap:16px}.thumb{width:72px;height:72px;border-radius:8px;background:linear-gradient(135deg,#e2e8f0,#cbd5e1)}.product-row{display:flex;gap:12px;padding:12px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:10px}.product-row.active{border-color:#ff321c;background:#fff7f5}.field{display:grid;gap:6px;margin-bottom:12px}.field label{font-size:12px;color:#64748b;font-weight:900}.field input,.field select,.field textarea{width:100%;border:1px solid #d1d5db;border-radius:7px;padding:10px;background:#fff}.field textarea{min-height:96px}.popover-wrap{min-height:calc(100vh - 150px);display:grid;place-items:start center;padding-top:70px}.popover{width:360px;padding:16px}.calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}.day{height:34px;display:grid;place-items:center;border-radius:7px;background:#f8fafc;font-size:12px}.day.active{background:#111827;color:#fff}.footer-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.link-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}.screen-link{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;text-decoration:none;color:#111827;font-weight:900}.screen-link span{color:#64748b;font-size:12px;font-weight:700}@media(max-width:900px){.app{grid-template-columns:1fr}.sidebar{position:static}.split,.grid.cols3,.grid.cols4{grid-template-columns:1fr}.toolbar,.topbar{flex-direction:column}.search{min-width:0;width:100%}}</style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">소싱라이프</div>
+      <div class="switch"><span class="active">타오바오</span><span>1688</span></div>
+      <nav>
+        <a class="nav-item disabled">아이템 검색</a>
+        <a class="nav-item current" href="01_주문관리_전체.html">주문관리</a>
+        <a class="nav-sub" href="02_주문관리_신규주문.html">주문수집</a>
+        <a class="nav-sub" href="07_취소반품교환.html">취소/반품/교환</a>
+        <a class="nav-sub" href="08_문의관리.html">문의관리</a>
+        <a class="nav-sub" href="09_마켓연동.html">마켓연동</a>
+        <a class="nav-item disabled">찜 리스트</a>
+        <a class="nav-item disabled">장바구니</a>
+        <a class="nav-item disabled">주문 내역</a>
+        <a class="nav-item disabled">배송 조회</a>
+      </nav>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h1>전체 화면 인덱스</h1>
+          <p>소싱라이프 주문관리 화면별 HTML 목록</p>
+        </div>
+        <a class="index-link" href="00_전체화면_인덱스.html">전체 화면</a>
+      </header>
+      <section class="link-list"><a class="screen-link" href="01_주문관리_전체.html">주문관리 - 전체<span>01</span></a><a class="screen-link" href="02_주문관리_신규주문.html">주문관리 - 신규주문<span>02</span></a><a class="screen-link" href="03_주문관리_상품준비.html">주문관리 - 상품준비<span>03</span></a><a class="screen-link" href="04_주문관리_발송대기.html">주문관리 - 발송대기<span>04</span></a><a class="screen-link" href="05_주문관리_배송중.html">주문관리 - 배송중<span>05</span></a><a class="screen-link" href="06_주문관리_배송완료.html">주문관리 - 배송완료<span>06</span></a><a class="screen-link" href="07_취소반품교환.html">취소/반품/교환<span>07</span></a><a class="screen-link" href="08_문의관리.html">문의관리<span>08</span></a><a class="screen-link" href="09_마켓연동.html">마켓연동<span>09</span></a><a class="screen-link" href="10_소싱하기_모달.html">소싱하기 모달<span>10</span></a><a class="screen-link" href="11_수동구매완료_모달.html">수동구매완료 모달<span>11</span></a><a class="screen-link" href="12_배송정보수정_모달.html">배송정보수정 모달<span>12</span></a><a class="screen-link" href="13_주문취소확인_모달.html">주문취소확인 모달<span>13</span></a><a class="screen-link" href="14_마켓추가수정_모달.html">마켓추가/수정 모달<span>14</span></a><a class="screen-link" href="15_마켓삭제확인_모달.html">마켓삭제확인 모달<span>15</span></a><a class="screen-link" href="16_클레임처리_모달.html">클레임처리 모달<span>16</span></a><a class="screen-link" href="17_이미지크게보기_모달.html">이미지 크게보기 모달<span>17</span></a><a class="screen-link" href="18_직접기간선택_팝오버.html">직접기간선택 팝오버<span>18</span></a><a class="screen-link" href="19_마켓스토어필터_팝오버.html">마켓/스토어 필터 팝오버<span>19</span></a><a class="screen-link" href="20_로그인.html">업무 공간 로그인<span>20</span></a></section>
+    </main>
+  </div>
+</body>
+</html>
