@@ -24,7 +24,7 @@ export const MARKET_FULFILLMENT_STATUSES = [
 export type MarketFulfillmentStatus =
   (typeof MARKET_FULFILLMENT_STATUSES)[number];
 
-export type MarketDeliveryMethod = "NONE" | "DELIVERY" | "DIRECT_DELIVERY";
+export type MarketDeliveryMethod = "NONE" | "DELIVERY" | "DIRECT_DELIVERY" | "OVERSEAS_OTHER_DELIVERY";
 
 export type MarketFulfillmentSubmission =
   | {
@@ -143,13 +143,11 @@ export type OrderItemInvariantViolationCode =
   | "INVOICE_FIELDS_REQUIRED"
   | "READY_TO_SHIP_REQUIRES_PURCHASE"
   | "READY_TO_SHIP_REQUIRES_INVOICE"
-  | "READY_TO_SHIP_CANNOT_HAVE_SUBMITTED_DIRECT_DELIVERY"
   | "SHIPPING_REQUIRES_PURCHASE"
   | "SHIPPING_REQUIRES_INVOICE"
   | "SHIPPING_REQUIRES_MARKET_SUBMISSION"
   | "SHIPPING_REQUIRES_DELIVERY_METHOD"
-  | "DIRECT_DELIVERY_PENDING_PURCHASE_MUST_REMAIN_PREPARING"
-  | "DIRECT_DELIVERY_PENDING_PURCHASE_CANNOT_HAVE_INVOICE"
+  | "MARKET_SUBMISSION_REQUIRES_PURCHASE"
   | "DELIVERED_REQUIRES_DOMESTIC_DELIVERY"
   | "DELIVERED_REQUIRES_PURCHASE"
   | "DELIVERED_REQUIRES_INVOICE";
@@ -220,8 +218,6 @@ export function validateOrderItemState(
   const purchaseCompleted = hasCompletedPurchase(state.purchase);
   const validInvoice = hasValidDomesticInvoice(state.shipment);
   const submissionSucceeded = state.market.submission.status === "SUBMITTED";
-  const directDeliverySubmitted =
-    state.market.deliveryMethod === "DIRECT_DELIVERY" && submissionSucceeded;
 
   if (state.shipment.invoiceStatus === "NOT_RECEIVED" && state.shipment.invoice) {
     violations.push(
@@ -254,23 +250,6 @@ export function validateOrderItemState(
       );
     }
 
-    if (!validInvoice) {
-      violations.push(
-        violation(
-          "READY_TO_SHIP_REQUIRES_INVOICE",
-          "READY_TO_SHIP requires a valid domestic invoice.",
-        ),
-      );
-    }
-
-    if (directDeliverySubmitted) {
-      violations.push(
-        violation(
-          "READY_TO_SHIP_CANNOT_HAVE_SUBMITTED_DIRECT_DELIVERY",
-          "A purchased and invoiced direct-delivery item must be SHIPPING.",
-        ),
-      );
-    }
   }
 
   if (state.internalWorkStatus === "SHIPPING") {
@@ -282,53 +261,21 @@ export function validateOrderItemState(
         ),
       );
     }
-
-    if (!validInvoice) {
-      violations.push(
-        violation(
-          "SHIPPING_REQUIRES_INVOICE",
-          "SHIPPING requires a valid domestic invoice.",
-        ),
-      );
-    }
-
     if (!submissionSucceeded) {
-      violations.push(
-        violation(
-          "SHIPPING_REQUIRES_MARKET_SUBMISSION",
-          "SHIPPING requires a confirmed successful market submission.",
-        ),
-      );
+      violations.push(violation("SHIPPING_REQUIRES_MARKET_SUBMISSION", "SHIPPING requires a completed marketplace shipping submission."));
     }
-
     if (state.market.deliveryMethod === "NONE") {
-      violations.push(
-        violation(
-          "SHIPPING_REQUIRES_DELIVERY_METHOD",
-          "SHIPPING requires DELIVERY or DIRECT_DELIVERY.",
-        ),
-      );
+      violations.push(violation("SHIPPING_REQUIRES_DELIVERY_METHOD", "SHIPPING requires the marketplace shipping method used."));
     }
   }
 
-  if (directDeliverySubmitted && !purchaseCompleted) {
-    if (state.internalWorkStatus !== "PREPARING") {
-      violations.push(
-        violation(
-          "DIRECT_DELIVERY_PENDING_PURCHASE_MUST_REMAIN_PREPARING",
-          "Direct delivery alone must not advance an unpurchased item.",
-        ),
-      );
-    }
-
-    if (validInvoice) {
-      violations.push(
-        violation(
-          "DIRECT_DELIVERY_PENDING_PURCHASE_CANNOT_HAVE_INVOICE",
-          "An unpurchased direct-delivery item cannot have a domestic invoice.",
-        ),
-      );
-    }
+  if (submissionSucceeded && !purchaseCompleted) {
+    violations.push(
+      violation(
+        "MARKET_SUBMISSION_REQUIRES_PURCHASE",
+        "Marketplace shipping submission requires a completed purchase event.",
+      ),
+    );
   }
 
   if (state.internalWorkStatus === "DELIVERED") {

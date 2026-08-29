@@ -26,6 +26,26 @@ describe("order item command request validation", () => {
             payload: { dispatchAt: "2026-07-10T03:00:00Z" },
         },
         {
+            type: "SHIPPING_PROCESS",
+            effectKey: "shipping-process-direct-v3",
+            expectedVersion: 3,
+            payload: {
+                requestedMethod: "DIRECT_DELIVERY",
+                dispatchAt: "2026-07-10T03:00:00Z",
+            },
+        },
+        {
+            type: "SHIPPING_PROCESS",
+            effectKey: "shipping-process-overseas-v3",
+            expectedVersion: 3,
+            payload: {
+                requestedMethod: "OVERSEAS_OTHER_DELIVERY",
+                carrierCode: "CH1",
+                trackingNumber: "YT2607100001CN",
+                dispatchAt: "2026-07-10T03:00:00Z",
+            },
+        },
+        {
             type: "SELLER_CANCEL",
             effectKey: "cancel-v1",
             expectedVersion: 4,
@@ -44,6 +64,18 @@ describe("order item command request validation", () => {
         });
 
         expect(result.success).toBe(false);
+    });
+
+    it("rejects overseas other delivery without an overseas tracking reference", () => {
+        expect(orderItemCommandRequestSchema.safeParse({
+            type: "SHIPPING_PROCESS",
+            effectKey: "shipping-process-overseas-missing",
+            expectedVersion: 3,
+            payload: {
+                requestedMethod: "OVERSEAS_OTHER_DELIVERY",
+                dispatchAt: "2026-07-10T03:00:00Z",
+            },
+        }).success).toBe(false);
     });
 
     it("rejects seller-cancel reasons outside Naver's current official contract", () => {

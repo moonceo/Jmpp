@@ -13,10 +13,12 @@ import {
 const routeNameMap: Record<string, string> = {
     "/": "대시보드",
     "/dashboard": "대시보드",
+    "/journey": "주문현황",
     "/orders": "주문수집",
     "/inquiries": "문의관리",
     "/ledger": "장부다운로드",
-    "/me/markets": "마켓 설정",
+    "/me/markets": "마켓연동",
+    "/me/notifications": "알림 설정",
     "/me/ledger": "장부다운로드",
 };
 
@@ -28,7 +30,7 @@ export function DynamicBreadcrumb() {
         <Breadcrumb>
             <BreadcrumbList>
                 <BreadcrumbItem className="hidden md:block">
-                    <BreadcrumbLink href="/">소싱라이프</BreadcrumbLink>
+                    <BreadcrumbLink href="/">커머스라이프</BreadcrumbLink>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator className="hidden md:block" />
                 <BreadcrumbItem>

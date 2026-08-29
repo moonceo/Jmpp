@@ -23,11 +23,13 @@ It is intentionally operational and evidence-based (from project config and code
 
 ## Product Planning Docs
 - Current MVP source of truth: `docs/00_문서맵/00_문서맵_주문팡팡_소싱라이프.md`.
-- Start from the document map above, then update only the affected files under `docs/01_서비스기획/` through `docs/09_와이어프레임/`.
+- Use the document map above as a reference, but do not automatically update files outside `docs/11_기능요구서/`.
 - Historical references to `docs/08_주문수집소싱라이프_MVP기획/` are not current for this repository; that folder is not part of the active doc set.
 - The MVP planning docs are intentionally split by topic so agents can update only the affected part.
-- When changing order workflow, SourcingLife integration, invoice handling, marketplace API mapping, or related UI labels, update the matching planning docs listed in the document map.
-- After meaningful product behavior changes, update the relevant planning doc and append a short entry to `docs/00_문서맵/99_변경이력.md`.
+- Only update documentation outside `docs/11_기능요구서/` when the user explicitly requests those document changes. This includes planning docs, architecture docs, UI/UX specs, wireframes, manuals, and `docs/00_문서맵/99_변경이력.md`.
+- Whenever a code change alters business logic, user-visible behavior, workflows, validation rules, status transitions, permissions, data handling, or external integration behavior, automatically identify and update the corresponding functional requirement document under `docs/11_기능요구서/` as part of the same change. Do not wait for a separate documentation request.
+- Use `docs/11_기능요구서/00_기능요구서_목록.md` to locate the relevant requirement document. If the changed behavior is not covered, add it to the most appropriate requirement document or create a new one when necessary, then keep the requirement list synchronized.
+- Keep functional requirement updates consistent with the implemented code. Record the changed behavior, conditions, exceptions, and user-visible results rather than only noting that code was modified.
 - Do not reintroduce Taobao direct payment or internal forwarder/warehouse management into the MVP unless the user explicitly changes the scope.
 
 ## Setup and Core Commands
@@ -158,7 +160,8 @@ During coding:
 Before finishing:
 - Run `npm run lint`.
 - Run `npm run build`.
-- Update docs when behavior or architecture meaningfully changes.
+- For code changes that alter logic or behavior, verify that the matching document under `docs/11_기능요구서/` and its requirement list are up to date.
+- Do not update other `docs/` content unless the user explicitly requests it.
 
 This AGENTS guide should be kept in sync with `package.json`, lint/build config,
 and any future test-runner setup.

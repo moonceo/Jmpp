@@ -16,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "소싱라이프 주문관리",
-  description: "주문수집, 클레임, 문의, 마켓연동을 관리하는 업무 화면입니다.",
+  title: "커머스라이프",
+  description: "마켓 주문수집, 클레임, 문의, 연동을 한곳에서 관리하는 독립 주문관리 서비스입니다.",
 };
 
 export default function RootLayout({
@@ -27,7 +27,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko" className="overflow-x-hidden" suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} overflow-x-hidden bg-white antialiased`}>
+      <body className={`${geistSans.variable} ${geistMono.variable} overflow-x-hidden bg-background antialiased`}>
         <Providers>
           <ApplicationShell>{children}</ApplicationShell>
         </Providers>

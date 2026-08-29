@@ -38,6 +38,7 @@ const detail: NaverProductOrderDetail = {
     quantity: 2,
     unitPrice: 12_500,
     totalPaymentAmount: 25_000,
+    deliveryFeeAmount: 3_000,
     productOrderStatus: "PRODUCT_PREPARE",
     receiverName: "홍길동",
     customMarketplaceField: "preserved",
@@ -64,6 +65,7 @@ describe("mapNaverProductOrder", () => {
       quantity: 2,
       unitPrice: 12_500,
       itemTotal: 25_000,
+      paymentShippingFee: 3_000,
     });
 
     const orderRawEnvelope = result.value.order.attributes.raw as Record<
@@ -93,6 +95,47 @@ describe("mapNaverProductOrder", () => {
         detail,
       ),
     ).toEqual({ ok: false, code: "INVALID_CHANGED_AT" });
+  });
+
+  it("keeps a directly delivered marketplace order in product preparation", () => {
+    const result = mapNaverProductOrder(
+      { ...change, productOrderStatus: "DELIVERING" },
+      {
+        ...detail,
+        productOrder: {
+          ...detail.productOrder,
+          productOrderStatus: "DELIVERING",
+          deliveryStatus: "DELIVERING",
+          deliveryMethod: "DIRECT_DELIVERY",
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.item).toMatchObject({
+      internalWorkStatus: "PREPARING",
+      marketFulfillmentStatus: "DELIVERING",
+      marketDeliveryMethod: "DIRECT_DELIVERY",
+    });
+  });
+
+  it("preserves the expected direct-delivery contract before marketplace dispatch", () => {
+    const result = mapNaverProductOrder(change, {
+      ...detail,
+      productOrder: {
+        ...detail.productOrder,
+        productOrderStatus: "PAYED",
+        expectedDeliveryMethod: "DIRECT_DELIVERY",
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.item).toMatchObject({
+      internalWorkStatus: "NEW",
+      marketDeliveryMethod: "DIRECT_DELIVERY",
+    });
   });
 
   it("extracts recipient PII defensively while keeping attributes redacted", () => {

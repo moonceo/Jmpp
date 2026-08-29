@@ -295,7 +295,7 @@ CREATE TABLE order_items (
         )
     ),
     CONSTRAINT order_items_delivery_method_ck CHECK (
-        market_delivery_method IS NULL OR market_delivery_method IN ('DELIVERY', 'DIRECT_DELIVERY')
+        market_delivery_method IS NULL OR market_delivery_method IN ('DELIVERY', 'DIRECT_DELIVERY', 'OVERSEAS_OTHER_DELIVERY')
     ),
     CONSTRAINT order_items_tracking_pair_ck CHECK (
         (domestic_carrier_code IS NULL AND domestic_tracking_number IS NULL)

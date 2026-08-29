@@ -1,8 +1,8 @@
 import { usePendingTasks } from "@/hooks/use-dashboard-data";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import Link from "next/link";
-import { cn } from "@/lib/utils";
 import { ArrowRight, Package, Truck, AlertCircle, RefreshCw } from "lucide-react";
 
 export function PendingTasks() {
@@ -10,10 +10,10 @@ export function PendingTasks() {
 
     const getIcon = (id: string) => {
         switch (id) {
-            case 'new-orders': return <Package className="h-5 w-5 text-blue-500" />;
-            case 'waiting-shipment': return <Truck className="h-5 w-5 text-indigo-500" />;
-            case 'shipping-error': return <AlertCircle className="h-5 w-5 text-red-500" />;
-            case 'claims': return <RefreshCw className="h-5 w-5 text-orange-500" />;
+            case 'new-orders': return <Package className="h-5 w-5 text-foreground" />;
+            case 'waiting': return <Truck className="h-5 w-5 text-foreground" />;
+            case 'preparing': return <AlertCircle className="h-5 w-5 text-foreground" />;
+            case 'claims': return <RefreshCw className="h-5 w-5 text-foreground" />;
             default: return <Package className="h-5 w-5" />;
         }
     };
@@ -39,12 +39,11 @@ export function PendingTasks() {
 
                         <div className="flex items-center justify-between">
                             <h3 className="font-medium text-sm">{task.name}</h3>
-                            <Link
-                                href={task.url}
-                                className="text-xs font-medium text-primary flex items-center hover:underline bg-primary/5 px-2 py-1 rounded-full"
-                            >
-                                처리하기 <ArrowRight className="h-3 w-3 ml-1" />
-                            </Link>
+                            <Button asChild variant="ghost" size="sm">
+                                <Link href={task.url}>
+                                    처리하기 <ArrowRight className="size-4" />
+                                </Link>
+                            </Button>
                         </div>
                     </CardContent>
                 </Card>

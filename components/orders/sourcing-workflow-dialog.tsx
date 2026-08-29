@@ -3,7 +3,11 @@
 import { useMemo, useState } from "react";
 import Image from "next/image";
 import { CheckCircle2, CreditCard, MessageCircle, PackageCheck, Send, Warehouse } from "lucide-react";
+import { SourcingRefundDialog } from "@/components/orders/sourcing-refund-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
+import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -13,8 +17,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { MARKET_LABELS } from "@/lib/constants/orders";
 import { forwarderProfiles, getSourcingCandidates, type ForwarderProfile, type SourcingMatchCandidate, type SourcingOption } from "@/lib/mock-data/sourcing-life";
 import { getSourcingProgressViewMeta, type SourcingProgressViewMeta } from "@/lib/sourcing-progress";
+import {
+    getSourcingRefundAvailability,
+    isSourcingRefundActive,
+    type SourcingReturnLogisticsDraft,
+} from "@/lib/sourcing-refund";
 import { cn } from "@/lib/utils";
-import { Order, SourcingForwarderSelection, SourcingLifeMatch } from "@/types/order";
+import { Order, SourcingForwarderSelection, SourcingLifeMatch, SourcingRefundDraft } from "@/types/order";
 
 interface SourcingWorkflowDialogProps {
     order: Order | null;
@@ -25,13 +34,57 @@ interface SourcingWorkflowDialogProps {
     onRequestCancel?: (order: Order) => void;
     onCreatePaymentWait?: (order: Order, match: SourcingLifeMatch, forwarder: SourcingForwarderSelection) => void;
     onCompletePayment?: (order: Order, match: SourcingLifeMatch) => boolean;
+    onRequestSourcingRefund?: (order: Order, draft: SourcingRefundDraft) => boolean | Promise<boolean>;
+    onAdvanceSourcingRefund?: (order: Order) => void;
+    onSubmitSourcingReturnLogistics?: (order: Order, draft: SourcingReturnLogisticsDraft) => boolean;
 }
 
-interface SourcingChatMessage {
+interface ChinaSellerChatMessage {
     id: string;
-    sender: "operator" | "sourcing-life";
+    sender: "operator" | "china-seller";
     message: string;
     sentAt: string;
+}
+
+export type PriceNegotiationStatus = "IDLE" | "REQUESTED";
+export type PriceNegotiationAction = "REQUEST" | "CANCEL";
+
+export interface PriceNegotiationTransition {
+    status: PriceNegotiationStatus;
+    message: string;
+    sentAt: string;
+}
+
+export function canProceedToPayment(status: PriceNegotiationStatus): boolean {
+    return status !== "REQUESTED";
+}
+
+export function getSourcingRefundActionLabel(order: Pick<Order, "sourcingRefund">): string {
+    if (!order.sourcingRefund) return "반품·환불 신청";
+    return isSourcingRefundActive(order.sourcingRefund) ? "환불 진행" : "환불 내역";
+}
+
+export function transitionPriceNegotiation(
+    status: PriceNegotiationStatus,
+    action: PriceNegotiationAction,
+): PriceNegotiationTransition | undefined {
+    if (action === "REQUEST" && status === "IDLE") {
+        return {
+            status: "REQUESTED",
+            message: "가격을 조금 낮춰주실 수 있을까요?",
+            sentAt: "깎아줘 요청",
+        };
+    }
+
+    if (action === "CANCEL" && status === "REQUESTED") {
+        return {
+            status: "IDLE",
+            message: "가격 인하 요청을 취소합니다.",
+            sentAt: "깎아줘 취소",
+        };
+    }
+
+    return undefined;
 }
 
 export interface SourcingMarginCalculation {
@@ -57,6 +110,48 @@ export interface SourcingAdditionalCosts {
 const SOURCING_SERVICE_FEE_RATE = 0.03;
 const CURRENCY_EXCHANGE_FEE_RATE = 0.025;
 const DEFAULT_FORWARDER_SHIPPING_FEE = 4750;
+
+export function buildSavedSourcingCandidate(
+    order: Order,
+    fallback: SourcingMatchCandidate | undefined,
+): SourcingMatchCandidate | undefined {
+    const savedMatch = order.sourcingLifeMatch;
+    const fallbackOption = fallback?.options[0];
+    if (!savedMatch?.candidateId || !fallback || !fallbackOption) return undefined;
+
+    const quantity = Math.max(1, savedMatch.quantity ?? order.product.quantity);
+    const savedTotalAmount = order.sourcingLifeActualPayment?.amount ?? order.expectedCost;
+    const priceKrw = Math.max(
+        0,
+        savedMatch.estimatedCost
+            ?? (savedTotalAmount !== undefined ? Math.round(savedTotalAmount / quantity) : fallbackOption.priceKrw),
+    );
+    const fallbackExchangeRate = fallbackOption.priceCny > 0
+        ? fallbackOption.priceKrw / fallbackOption.priceCny
+        : 0;
+    const priceCny = fallbackExchangeRate > 0
+        ? Number((priceKrw / fallbackExchangeRate).toFixed(2))
+        : fallbackOption.priceCny;
+
+    return {
+        ...fallback,
+        id: savedMatch.candidateId,
+        productId: savedMatch.productId ?? fallback.productId,
+        productName: savedMatch.productName ?? order.product.name,
+        thumbnail: savedMatch.thumbnail ?? order.product.thumbnail,
+        matchRate: savedMatch.matchRate ?? fallback.matchRate,
+        priceCny,
+        priceKrw,
+        options: [{
+            ...fallbackOption,
+            id: savedMatch.optionId ?? `${savedMatch.candidateId}-saved-option`,
+            label: savedMatch.optionName ?? order.product.optionName,
+            priceCny,
+            priceKrw,
+            stock: Math.max(fallbackOption.stock, quantity),
+        }],
+    };
+}
 
 export function calculateSourcingMargin(
     order: Pick<Order, "paymentPrice" | "platformFee" | "expectedSettlement">,
@@ -171,6 +266,9 @@ export function SourcingWorkflowDialog({
     onRequestCancel,
     onCreatePaymentWait,
     onCompletePayment,
+    onRequestSourcingRefund,
+    onAdvanceSourcingRefund,
+    onSubmitSourcingReturnLogistics,
 }: SourcingWorkflowDialogProps) {
     const candidates = useMemo(() => getSourcingCandidates(order?.id ?? ""), [order?.id]);
     const [searchQuery, setSearchQuery] = useState("");
@@ -194,7 +292,16 @@ export function SourcingWorkflowDialog({
         [addedState, order?.id],
     );
     const searchSequence = addedState.orderId === order?.id ? addedState.sequence : 0;
-    const displayedCandidates = useMemo(() => [...addedCandidates, ...candidates], [addedCandidates, candidates]);
+    const displayedCandidates = useMemo(() => {
+        const availableCandidates = [...addedCandidates, ...candidates];
+        const savedCandidateId = order?.sourcingLifeMatch?.candidateId;
+        if (!order || !savedCandidateId || availableCandidates.some((candidate) => candidate.id === savedCandidateId)) {
+            return availableCandidates;
+        }
+
+        const savedCandidate = buildSavedSourcingCandidate(order, candidates[0]);
+        return savedCandidate ? [savedCandidate, ...availableCandidates] : availableCandidates;
+    }, [addedCandidates, candidates, order]);
 
     const selectedMatch = displayedCandidates.find((candidate) => candidate.id === selectedMatchId) ?? displayedCandidates[0];
     const selectedOptionId = selectedMatch ? candidateOptionIds[selectedMatch.id] : undefined;
@@ -203,17 +310,28 @@ export function SourcingWorkflowDialog({
     const startsInProgressView = startsInPaymentWaiting || mode === "progress";
     const [showPaymentPage, setShowPaymentPage] = useState(startsInProgressView);
     const [purchaseStep, setPurchaseStep] = useState<"forwarder" | "waiting" | "payment">(startsInProgressView ? "waiting" : "forwarder");
+    const [paymentMethod, setPaymentMethod] = useState<"homespay" | "general">("homespay");
     const [selectedForwarderCode, setSelectedForwarderCode] = useState(order?.sourcingForwarder?.code ?? forwarderProfiles[0].code);
     const [chatDraft, setChatDraft] = useState("");
-    const [chatMessages, setChatMessages] = useState<SourcingChatMessage[]>([
+    const [sourcingRefundOpen, setSourcingRefundOpen] = useState(false);
+    const [priceNegotiationStatus, setPriceNegotiationStatus] = useState<PriceNegotiationStatus>("IDLE");
+    const [chatMessages, setChatMessages] = useState<ChinaSellerChatMessage[]>([
         {
             id: "welcome",
-            sender: "sourcing-life",
-            message: "구매대행 신청 후 상품 가격과 배송 조건을 확인해 드립니다. 문의사항을 남겨주세요.",
-            sentAt: "상담 안내",
+            sender: "china-seller",
+            message: mode === "progress" && !startsInPaymentWaiting
+                ? "결제가 완료되었습니다. 상품 준비, 중국 내 발송 또는 판매자 확인이 필요한 내용을 남겨주세요."
+                : "구매대행 신청이 접수되었습니다. 상품 가격, 재고와 중국 내 배송 조건을 확인할 내용을 남겨주세요.",
+            sentAt: "판매자 안내",
         },
     ]);
     if (!order || !selectedMatch || !selectedOption) return null;
+
+    const sourcingRefundAvailability = getSourcingRefundAvailability(order);
+    const canOpenSourcingRefund = mode === "progress"
+        && sourcingRefundAvailability.canOpen
+        && Boolean(onRequestSourcingRefund && onAdvanceSourcingRefund && onSubmitSourcingReturnLogistics);
+    const sourcingRefundActionLabel = getSourcingRefundActionLabel(order);
 
     const quantity = Math.max(1, Math.min(
         candidateQuantities[selectedMatch.id] ?? order.product.quantity,
@@ -337,11 +455,25 @@ export function SourcingWorkflowDialog({
         setChatDraft("");
     };
 
+    const handlePriceNegotiation = (action: PriceNegotiationAction) => {
+        const transition = transitionPriceNegotiation(priceNegotiationStatus, action);
+        if (!transition) return;
+
+        setPriceNegotiationStatus(transition.status);
+        setChatMessages((current) => [...current, {
+            id: `${order.id}-negotiation-${current.length + 1}`,
+            sender: "operator",
+            message: transition.message,
+            sentAt: transition.sentAt,
+        }]);
+    };
+
     const handleOpenChange = (nextOpen: boolean) => {
         if (!nextOpen) {
             setShowPaymentPage(false);
             setPurchaseStep("forwarder");
             setSearchQuery("");
+            setSourcingRefundOpen(false);
         }
         onOpenChange(nextOpen);
     };
@@ -353,155 +485,253 @@ export function SourcingWorkflowDialog({
     const marketLabel = MARKET_LABELS[order.marketType];
     const progressViewMeta = getSourcingProgressViewMeta(order)
         ?? getSourcingProgressViewMeta({ sourcingProgressStage: "PAYMENT_WAITING" });
+    const isPaymentConversationView = showPaymentPage && purchaseStep === "waiting";
+    const dialogTitle = !showPaymentPage
+        ? mode === "match-only" ? "매칭하기" : "소싱하기"
+        : isPaymentConversationView
+            ? "소싱상품관리"
+            : purchaseStep === "forwarder"
+                ? "배대지 선택"
+                : "소싱라이프 결제";
+    const dialogDescription = !showPaymentPage
+        ? mode === "match-only"
+            ? "후보 상품과 옵션을 선택하면 주문확인까지 처리하고 상품준비로 이동합니다."
+            : "상품과 옵션을 선택한 뒤 배대지를 지정하고 결제대기 상태로 전환합니다."
+        : isPaymentConversationView
+            ? "소싱상품관리에서 결제대기부터 결제완료까지 같은 중국 판매자 채팅을 이어서 확인합니다."
+            : purchaseStep === "forwarder"
+                ? "구매대행 신청에 사용할 배송대행지 수령 프로필을 선택합니다."
+                : "최종 결제금액과 약관, 결제수단을 확인합니다.";
+    const progressAmount = order.sourcingLifeActualPayment?.amount
+        ?? (order.sourcingLifeMatch?.estimatedCost ?? selectedOption.priceKrw)
+            * (order.sourcingLifeMatch?.quantity ?? quantity);
 
     return (
+        <>
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogContent
-                className={cn("max-h-[92vh] overflow-hidden p-0", showPaymentPage ? "max-w-[1280px]" : "max-w-[1440px]")}
+                className={cn("max-h-[92vh] gap-0 overflow-hidden p-0", showPaymentPage ? "sm:max-w-[1280px]" : "sm:max-w-[1440px]")}
                 onPointerDownOutside={(event) => event.preventDefault()}
             >
-                <DialogHeader className="border-b px-6 py-5">
-                    <DialogTitle className="text-xl">
-                        {!showPaymentPage
-                            ? "소싱하기"
-                            : mode === "progress"
-                                ? progressViewMeta?.label ?? "소싱 진행"
-                                : purchaseStep === "forwarder"
-                                ? "배대지 선택"
-                                : purchaseStep === "waiting"
-                                    ? "결제대기"
-                                    : "소싱라이프 결제"}
-                    </DialogTitle>
-                    {!showPaymentPage && (
-                        <DialogDescription className="mt-2">
-                            {mode === "match-only"
-                                ? "후보 상품과 옵션을 선택하면 주문확인까지 처리하고 상품준비로 이동합니다."
-                                : "상품과 옵션을 선택한 뒤 배대지를 지정하고 결제대기 상태로 전환합니다."}
-                        </DialogDescription>
-                    )}
+                <DialogHeader className="border-b px-5 py-4 pr-12 sm:px-6">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                            <DialogTitle className="text-xl">{dialogTitle}</DialogTitle>
+                            <DialogDescription className="mt-1.5">{dialogDescription}</DialogDescription>
+                        </div>
+                        {isPaymentConversationView && progressViewMeta ? (
+                            <div className="flex items-center gap-2 pr-2">
+                                <Badge variant="outline" className="h-7 rounded-full px-3 text-xs font-bold">
+                                    {progressViewMeta.label}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">{order.marketOrderId}</span>
+                            </div>
+                        ) : null}
+                    </div>
                 </DialogHeader>
 
                 {showPaymentPage ? (
-                    <div className="max-h-[calc(92vh-88px)] overflow-auto bg-white">
-                        <div className="border-b px-6 py-3">
-                            <button type="button" className="text-sm font-medium text-slate-500 hover:text-slate-900" onClick={() => (purchaseStep === "payment" ? setPurchaseStep("waiting") : purchaseStep === "waiting" ? handleOpenChange(false) : setShowPaymentPage(false))}>
+                    <div className="max-h-[calc(92vh-81px)] overflow-auto bg-card">
+                        {purchaseStep !== "waiting" ? <div className="border-b px-5 py-2 sm:px-6">
+                            <Button type="button" variant="ghost" size="sm" className="-ml-3 text-muted-foreground" onClick={() => (purchaseStep === "payment" ? setPurchaseStep("waiting") : setShowPaymentPage(false))}>
                                 ← 이전으로
-                            </button>
-                        </div>
+                            </Button>
+                        </div> : null}
 
                         {purchaseStep === "waiting" ? (
                             <SourcingProgressView
                                 order={order}
                                 meta={progressViewMeta!}
-                                productName={order.sourcingLifeMatch?.productName ?? selectedMatch.productName}
-                                productThumbnail={order.sourcingLifeMatch?.thumbnail ?? selectedMatch.thumbnail}
-                                optionName={order.sourcingLifeMatch?.optionName ?? selectedOption.label}
-                                quantity={order.sourcingLifeMatch?.quantity ?? quantity}
-                                amount={order.sourcingLifeActualPayment?.amount ?? order.sourcingLifeMatch?.estimatedCost ?? productCostTotal}
+                                productName={order.sourcingLifeMatch?.productName ?? order.product.name}
+                                productThumbnail={order.sourcingLifeMatch?.thumbnail ?? order.product.thumbnail}
+                                optionName={order.sourcingLifeMatch?.optionName ?? order.product.optionName}
+                                quantity={order.sourcingLifeMatch?.quantity ?? order.product.quantity}
+                                amount={progressAmount}
                                 forwarder={selectedForwarder}
                                 messages={chatMessages}
                                 chatDraft={chatDraft}
                                 onChatDraftChange={setChatDraft}
                                 onSendChat={sendChatMessage}
+                                priceNegotiationStatus={priceNegotiationStatus}
+                                onRequestPriceNegotiation={() => handlePriceNegotiation("REQUEST")}
+                                onCancelPriceNegotiation={() => handlePriceNegotiation("CANCEL")}
                                 onPay={progressViewMeta?.stage === "PAYMENT_WAITING" && order.status === "PREPARING" ? () => setPurchaseStep("payment") : undefined}
-                                onClose={() => handleOpenChange(false)}
+                                onCancelOrder={progressViewMeta?.stage === "PAYMENT_WAITING" && order.status === "PREPARING" && onRequestCancel
+                                    ? () => onRequestCancel(order)
+                                    : undefined}
+                                sourcingRefundActionLabel={canOpenSourcingRefund ? sourcingRefundActionLabel : undefined}
+                                onOpenSourcingRefund={canOpenSourcingRefund ? () => setSourcingRefundOpen(true) : undefined}
                             />
                         ) : (
                         <div className="grid min-h-[680px] grid-cols-1 gap-6 p-6 xl:grid-cols-[1fr_320px]">
                             <div className="space-y-6">
-                                <div className="grid grid-cols-[72px_1fr_84px_120px_120px] items-center gap-4 border-b border-t bg-slate-50 px-3 py-3 text-xs font-semibold text-slate-600">
-                                    <div />
-                                    <div className="text-center">상품명</div>
-                                    <div className="text-center">총수량</div>
-                                    <div className="text-center">소계(元)</div>
-                                    <div className="text-center">소계(원)</div>
-                                </div>
-                                <div className="grid grid-cols-[72px_1fr_84px_120px_120px] items-center gap-4 border-b px-3 pb-4">
-                                    <div className="relative h-14 w-14 overflow-hidden rounded border bg-white">
-                                        <Image src={selectedMatch.thumbnail} alt={selectedMatch.productName} fill sizes="56px" className="object-cover" />
-                                    </div>
-                                    <div className="min-w-0">
-                                        <div className="truncate text-sm font-bold text-slate-950">{selectedMatch.productName}</div>
-                                        <div className="mt-1 truncate text-xs text-slate-500">{selectedOption.label}</div>
-                                    </div>
-                                    <div className="text-center text-sm font-bold">{quantity}</div>
-                                    <div className="text-center text-sm font-bold text-red-600">{(selectedOption.priceCny * quantity).toLocaleString()}元</div>
-                                    <div className="text-center text-sm font-bold text-red-600">{productCostTotal.toLocaleString()}원</div>
-                                </div>
-
-                                {purchaseStep === "forwarder" && (
-                                    <MarginAnalysis calculation={marginCalculation} marketLabel={marketLabel} wide />
-                                )}
-
                                 {purchaseStep === "forwarder" ? (
                                     <div className="space-y-5">
-                                        <div>
-                                            <h3 className="text-lg font-bold text-slate-950">입고할 배대지를 선택하세요</h3>
-                                            <p className="mt-1 text-sm text-slate-500">소싱라이프에 등록된 중국 수령지 중 하나를 선택합니다. 신규 창고 등록이나 관리는 이 화면에서 하지 않습니다.</p>
-                                        </div>
-                                        <div className="grid gap-3 lg:grid-cols-3">
+                                        <Card className="rounded-2xl border border-border bg-card p-5" aria-labelledby="forwarder-order-product-title">
+                                            <h3 id="forwarder-order-product-title" className="text-base font-black tracking-tight text-foreground">주문상품</h3>
+                                            <div className="mt-4 grid gap-4 sm:grid-cols-[72px_minmax(0,1fr)_auto] sm:items-center">
+                                                <div className="relative h-[72px] w-[72px] overflow-hidden rounded-xl border bg-muted">
+                                                    <Image src={order.product.thumbnail} alt={order.product.name} fill sizes="72px" className="object-cover" />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-bold text-foreground">{marketLabel} 주문</span>
+                                                        <span className="text-xs text-muted-foreground">{order.marketOrderId}</span>
+                                                    </div>
+                                                    <div className="mt-2 line-clamp-2 text-sm font-bold leading-5 text-foreground">{order.product.name}</div>
+                                                    <div className="mt-1 text-xs text-muted-foreground">{order.product.optionName}</div>
+                                                </div>
+                                                <div className="flex gap-6 border-t pt-3 text-right sm:block sm:border-l sm:border-t-0 sm:pl-6 sm:pt-0">
+                                                    <div>
+                                                        <div className="text-xs font-semibold text-muted-foreground">주문수량</div>
+                                                        <div className="mt-1 text-sm font-black text-foreground">{order.product.quantity}개</div>
+                                                    </div>
+                                                    <div className="sm:mt-3">
+                                                        <div className="text-xs font-semibold text-muted-foreground">결제금액</div>
+                                                        <div className="mt-1 text-sm font-black text-foreground">{order.paymentPrice.toLocaleString()}원</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </Card>
+
+                                        <Card className="rounded-2xl border border-border bg-card p-5" aria-labelledby="forwarder-sourcing-product-title">
+                                            <h3 id="forwarder-sourcing-product-title" className="text-base font-black tracking-tight text-foreground">소싱상품</h3>
+                                            <div className="mt-4 grid gap-4 sm:grid-cols-[72px_minmax(0,1fr)_auto] sm:items-center">
+                                                <div className="relative h-[72px] w-[72px] overflow-hidden rounded-xl border bg-muted">
+                                                    <Image src={selectedMatch.thumbnail} alt={selectedMatch.productName} fill sizes="72px" className="object-cover" />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <div className="line-clamp-2 text-sm font-bold leading-5 text-foreground">{selectedMatch.productName}</div>
+                                                    <div className="mt-1 text-xs text-muted-foreground">{selectedOption.label}</div>
+                                                </div>
+                                                <div className="grid grid-cols-3 gap-4 border-t pt-3 text-right sm:border-l sm:border-t-0 sm:pl-6 sm:pt-0">
+                                                    <div>
+                                                        <div className="text-xs font-semibold text-muted-foreground">수량</div>
+                                                        <div className="mt-1 text-sm font-black text-foreground">{quantity}개</div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-xs font-semibold text-muted-foreground">소계(元)</div>
+                                                        <div className="mt-1 whitespace-nowrap text-sm font-black text-foreground">{(selectedOption.priceCny * quantity).toLocaleString()}元</div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-xs font-semibold text-muted-foreground">소계(원)</div>
+                                                        <div className="mt-1 whitespace-nowrap text-sm font-black text-foreground">{productCostTotal.toLocaleString()}원</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </Card>
+
+                                        <Card className="rounded-2xl border border-border bg-card p-5" aria-labelledby="forwarder-margin-title">
+                                            <h3 id="forwarder-margin-title" className="text-base font-black tracking-tight text-foreground">마진분석</h3>
+                                            <div className="mt-4">
+                                                <MarginAnalysis calculation={marginCalculation} marketLabel={marketLabel} wide showTitle={false} />
+                                            </div>
+                                        </Card>
+
+                                        <Card className="rounded-2xl border border-border bg-card p-5" aria-labelledby="forwarder-selection-title">
+                                            <div>
+                                                <h3 id="forwarder-selection-title" className="text-base font-black tracking-tight text-foreground">배송대행지 선택</h3>
+                                                <p className="mt-1 text-sm text-muted-foreground">소싱라이프에 등록된 중국 수령지 중 하나를 선택합니다. 신규 창고 등록이나 관리는 이 화면에서 하지 않습니다.</p>
+                                            </div>
+                                            <div className="mt-4 grid gap-3 lg:grid-cols-3">
                                             {forwarderProfiles.map((profile) => {
                                                 const selected = profile.code === selectedForwarder.code;
                                                 return (
-                                                    <button
+                                                    <Button
                                                         key={profile.code}
                                                         type="button"
+                                                        variant="outline"
                                                         className={cn(
-                                                            "rounded-xl border p-4 text-left transition hover:border-orange-300 hover:bg-orange-50/40",
-                                                            selected && "border-orange-500 bg-orange-50 ring-2 ring-orange-100",
+                                                            "block h-auto w-full whitespace-normal rounded-xl p-4 text-left transition hover:bg-muted/40",
+                                                            selected && "border-border bg-muted ring-2 ring-ring",
                                                         )}
                                                         onClick={() => setSelectedForwarderCode(profile.code)}
                                                     >
                                                         <div className="flex items-center gap-2">
-                                                            <span className={cn("flex h-9 w-9 items-center justify-center rounded-lg", selected ? "bg-orange-600 text-white" : "bg-slate-100 text-slate-500")}>
+                                                            <span className={cn("flex h-9 w-9 items-center justify-center rounded-lg", selected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}>
                                                                 <Warehouse className="h-4 w-4" />
                                                             </span>
                                                             <div>
-                                                                <div className="text-sm font-bold text-slate-950">{profile.name}</div>
-                                                                <div className="mt-0.5 text-[11px] text-slate-500">코드 {profile.code}</div>
+                                                                <div className="text-sm font-bold text-foreground">{profile.name}</div>
+                                                                <div className="mt-0.5 text-xs text-muted-foreground">코드 {profile.code}</div>
                                                             </div>
                                                         </div>
-                                                        <div className="mt-4 space-y-1 text-xs leading-5 text-slate-600">
+                                                        <div className="mt-4 space-y-1 text-xs leading-5 text-muted-foreground">
                                                             <div>{profile.receiverName} · {profile.phone}</div>
                                                             <div>{profile.province}</div>
                                                             <div>{profile.address1}</div>
-                                                            <div className="font-semibold text-slate-900">사서함 {profile.address2}</div>
+                                                            <div className="font-semibold text-foreground">사서함 {profile.address2}</div>
                                                         </div>
-                                                    </button>
+                                                    </Button>
                                                 );
                                             })}
-                                        </div>
-                                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                                            구매대행 신청 후 주문은 결제되지 않고 <strong>결제대기</strong>에 머뭅니다. 견적과 상담 내용을 확인한 뒤 별도의 `결제하기` 단계에서 결제합니다.
-                                        </div>
+                                            </div>
+                                        </Card>
                                     </div>
                                 ) : (
-                                    <div className="space-y-6">
+                                    <>
+                                        <div className="grid grid-cols-[72px_1fr_84px_120px_120px] items-center gap-4 border-b border-t bg-muted px-3 py-3 text-xs font-semibold text-muted-foreground">
+                                            <div />
+                                            <div className="text-center">상품명</div>
+                                            <div className="text-center">총수량</div>
+                                            <div className="text-center">소계(元)</div>
+                                            <div className="text-center">소계(원)</div>
+                                        </div>
+                                        <div className="grid grid-cols-[72px_1fr_84px_120px_120px] items-center gap-4 border-b px-3 pb-4">
+                                            <div className="relative h-14 w-14 overflow-hidden rounded border bg-card">
+                                                <Image src={selectedMatch.thumbnail} alt={selectedMatch.productName} fill sizes="56px" className="object-cover" />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <div className="truncate text-sm font-bold text-foreground">{selectedMatch.productName}</div>
+                                                <div className="mt-1 truncate text-xs text-muted-foreground">{selectedOption.label}</div>
+                                            </div>
+                                            <div className="text-center text-sm font-bold">{quantity}</div>
+                                            <div className="text-center text-sm font-bold text-foreground">{(selectedOption.priceCny * quantity).toLocaleString()}元</div>
+                                            <div className="text-center text-sm font-bold text-foreground">{productCostTotal.toLocaleString()}원</div>
+                                        </div>
+                                        <div className="space-y-6">
                                         <section className="space-y-3">
-                                            <h3 className="text-lg font-bold text-slate-950">약관 동의</h3>
+                                            <h3 className="text-lg font-bold text-foreground">약관 동의</h3>
                                             <AgreementRow label="전체 동의" strong />
                                             <AgreementRow label="(필수) 개인정보 수집 이용동의를 확인하고 동의합니다." />
                                             <AgreementRow label="(필수) 이용약관을 확인하고 동의합니다." />
                                         </section>
                                         <section className="space-y-4">
-                                            <h3 className="border-b pb-3 text-lg font-bold text-slate-950">결제 정보 입력</h3>
+                                            <h3 className="border-b pb-3 text-lg font-bold text-foreground">결제 정보 입력</h3>
                                             <div className="grid grid-cols-[140px_1fr] border-y">
-                                                <div className="bg-slate-50 px-4 py-4 text-xs font-semibold text-slate-600">결제수단 선택</div>
+                                                <div className="bg-muted px-4 py-4 text-xs font-semibold text-muted-foreground">결제수단 선택</div>
                                                 <div className="space-y-6 px-6 py-5">
-                                                    <label className="flex items-center gap-2 text-sm font-semibold"><input type="radio" defaultChecked /> 홈즈페이</label>
-                                                    <div className="mx-auto flex h-32 w-52 items-center justify-center rounded-md border bg-slate-100 text-center text-sm text-slate-700">
+                                                    <Button
+                                                        type="button"
+                                                        size="sm"
+                                                        variant={paymentMethod === "homespay" ? "default" : "outline"}
+                                                        aria-pressed={paymentMethod === "homespay"}
+                                                        onClick={() => setPaymentMethod("homespay")}
+                                                    >
+                                                        홈즈페이
+                                                    </Button>
+                                                    <div className="mx-auto flex h-32 w-52 items-center justify-center rounded-md border bg-muted text-center text-sm text-foreground">
                                                         +<br />카드·계좌 추가하기
                                                     </div>
-                                                    <label className="flex items-center gap-2 text-sm text-slate-500"><input type="radio" /> 일반결제</label>
-                                                    <Input placeholder="결제내역 받을 메일 입력" className="h-9 max-w-sm bg-white" />
-                                                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                                                    <Button
+                                                        type="button"
+                                                        size="sm"
+                                                        variant={paymentMethod === "general" ? "default" : "outline"}
+                                                        aria-pressed={paymentMethod === "general"}
+                                                        onClick={() => setPaymentMethod("general")}
+                                                    >
+                                                        일반결제
+                                                    </Button>
+                                                    <Input placeholder="결제내역 받을 메일 입력" className="h-9 max-w-sm bg-card" />
+                                                    <label className="flex items-center gap-2 text-sm text-foreground">
                                                         <Checkbox defaultChecked />
                                                         [필수] 결제 서비스 이용 약관, 개인정보 처리 동의
                                                     </label>
                                                 </div>
                                             </div>
                                         </section>
-                                    </div>
+                                        </div>
+                                    </>
                                 )}
                             </div>
 
@@ -519,36 +749,36 @@ export function SourcingWorkflowDialog({
                     </div>
                 ) : (
                     <div className="grid max-h-[calc(92vh-88px)] grid-cols-1 overflow-hidden lg:grid-cols-[240px_minmax(0,1fr)_320px] xl:grid-cols-[260px_minmax(0,1fr)_340px] 2xl:grid-cols-[280px_minmax(0,1fr)_360px]">
-                    <aside className="border-r bg-slate-50 p-5">
-                        <h3 className="font-semibold text-slate-950">현재 주문</h3>
+                    <aside className="border-r bg-muted p-5">
+                        <h3 className="font-semibold text-foreground">현재 주문</h3>
                         <div className="mt-4 flex gap-3">
-                            <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-md border bg-white">
+                            <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-md border bg-card">
                                 <Image src={order.product.thumbnail} alt={order.product.name} fill sizes="80px" className="object-cover" />
                             </div>
                             <div className="min-w-0">
                                 <div className="line-clamp-3 text-sm font-semibold leading-snug">{order.product.name}</div>
-                                <div className="mt-2 text-xs text-slate-500">{order.product.optionName}</div>
-                                <div className="mt-1.5 inline-flex rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500 ring-1 ring-slate-200">
+                                <div className="mt-2 text-xs text-muted-foreground">{order.product.optionName}</div>
+                                <div className="mt-1.5 inline-flex rounded-full bg-card px-2 py-0.5 text-xs font-semibold text-muted-foreground ring-1 ring-ring">
                                     {marketLabel} 주문
                                 </div>
-                                <div className="mt-1 text-xs text-slate-500">수량 {order.product.quantity}개</div>
+                                <div className="mt-1 text-xs text-muted-foreground">수량 {order.product.quantity}개</div>
                             </div>
                         </div>
 
                         <Separator className="my-5" />
 
-                        <div className="space-y-2 text-xs text-slate-600">
+                        <div className="space-y-2 text-xs text-muted-foreground">
                             <div className="flex justify-between gap-3">
                                 <span>주문번호</span>
-                                <span className="truncate font-mono text-slate-900">{order.marketOrderId}</span>
+                                <span className="truncate font-mono text-foreground">{order.marketOrderId}</span>
                             </div>
                             <div className="flex justify-between">
                                 <span>수령인</span>
-                                <span className="font-medium text-slate-900">{order.recipient.name}</span>
+                                <span className="font-medium text-foreground">{order.recipient.name}</span>
                             </div>
                             <div className="flex justify-between">
                                 <span>결제금액</span>
-                                <span className="font-bold text-slate-900">{order.paymentPrice.toLocaleString()}원</span>
+                                <span className="font-bold text-foreground">{order.paymentPrice.toLocaleString()}원</span>
                             </div>
                         </div>
 
@@ -568,13 +798,13 @@ export function SourcingWorkflowDialog({
                                         if (event.key === "Enter") handleFindCandidate();
                                     }}
                                     placeholder="키워드 또는 타오바오/소싱라이프 상품 URL 입력"
-                                    className="h-9 bg-white"
+                                    className="h-9 bg-card"
                                 />
                                 <Button type="button" className="h-9 shrink-0" disabled={!searchQuery.trim() || Boolean(searchError)} onClick={handleFindCandidate}>
                                     찾기
                                 </Button>
                                 </div>
-                                {searchError && <div className="mt-1 text-xs font-medium text-red-600">{searchError}</div>}
+                                {searchError && <div className="mt-1 text-xs font-medium text-foreground">{searchError}</div>}
                             </div>
                         </div>
 
@@ -583,8 +813,8 @@ export function SourcingWorkflowDialog({
                                 <article
                                     key={candidate.id}
                                     className={cn(
-                                        "flex h-full min-w-0 flex-col overflow-hidden rounded-md border bg-white transition hover:border-slate-300 hover:shadow-sm",
-                                        selectedMatch.id === candidate.id && "border-orange-500 ring-2 ring-orange-100",
+                                        "flex h-full min-w-0 flex-col overflow-hidden rounded-md border bg-card transition hover:border-border hover:shadow-sm",
+                                        selectedMatch.id === candidate.id && "border-border ring-2 ring-ring",
                                     )}
                                 >
                                     <button
@@ -592,13 +822,13 @@ export function SourcingWorkflowDialog({
                                         className="flex min-h-[108px] w-full flex-1 gap-3 p-3 text-left"
                                         onClick={() => handleSelectMatch(candidate)}
                                     >
-                                        <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded border bg-white">
+                                        <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded border bg-card">
                                             <Image src={candidate.thumbnail} alt={candidate.productName} fill sizes="80px" className="object-cover" />
                                         </div>
                                         <div className="min-w-0 flex-1">
-                                            <div className="line-clamp-2 text-sm font-semibold leading-5 text-slate-950">{candidate.productName}</div>
-                                            <div className="mt-0.5 line-clamp-1 text-xs text-slate-600">{candidate.productNameZh}</div>
-                                            <div className="mt-1 truncate text-xs text-slate-500">{candidate.sellerName}</div>
+                                            <div className="line-clamp-2 text-sm font-semibold leading-5 text-foreground">{candidate.productName}</div>
+                                            <div className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{candidate.productNameZh}</div>
+                                            <div className="mt-1 truncate text-xs text-muted-foreground">{candidate.sellerName}</div>
                                         </div>
                                     </button>
 
@@ -618,15 +848,15 @@ export function SourcingWorkflowDialog({
                         </div>
                     </section>
 
-                    <aside className="overflow-y-auto border-l bg-white p-5">
+                    <aside className="overflow-y-auto border-l bg-card p-5">
                         <h3 className="font-semibold">선택 상품</h3>
-                        <div className="mt-4 rounded-lg border bg-slate-50 p-4">
+                        <div className="mt-4 rounded-lg border bg-muted p-4">
                             <div className="flex items-start gap-3">
-                                <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border bg-white shadow-sm">
+                                <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border bg-card shadow-sm">
                                     <Image src={selectedMatch.thumbnail} alt={selectedMatch.productName} fill sizes="64px" className="object-cover" />
                                 </div>
                                 <div className="min-w-0 pt-0.5">
-                                    <div className="line-clamp-3 text-sm font-bold leading-5 text-slate-950">{selectedMatch.productName}</div>
+                                    <div className="line-clamp-3 text-sm font-bold leading-5 text-foreground">{selectedMatch.productName}</div>
                                 </div>
                             </div>
                             <Separator className="my-4" />
@@ -638,12 +868,12 @@ export function SourcingWorkflowDialog({
                                         if (option) handleSelectOption(selectedMatch, option);
                                     }}
                                 >
-                                    <SelectTrigger className="h-auto min-h-12 w-full bg-white py-2 text-left">
+                                    <SelectTrigger className="h-auto min-h-12 w-full bg-card py-2 text-left">
                                         <span className="min-w-0 flex-1">
-                                            <span className="block truncate text-sm font-semibold text-slate-900">
+                                            <span className="block truncate text-sm font-semibold text-foreground">
                                                 {selectedOption.label}{selectedOption.stock <= 0 ? " · 품절" : ""}
                                             </span>
-                                            <span className="mt-0.5 block truncate text-xs text-slate-500">
+                                            <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                                                 {selectedOption.labelZh}
                                             </span>
                                         </span>
@@ -652,10 +882,10 @@ export function SourcingWorkflowDialog({
                                         {selectedMatch.options.map((option) => (
                                             <SelectItem key={option.id} value={option.id} className="py-2">
                                                 <span className="block min-w-0 max-w-[250px]">
-                                                    <span className="block truncate text-sm font-semibold text-slate-900">
+                                                    <span className="block truncate text-sm font-semibold text-foreground">
                                                         {option.label}{option.stock <= 0 ? " · 품절" : ""}
                                                     </span>
-                                                    <span className="mt-0.5 block truncate text-xs text-slate-500">
+                                                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                                                         {option.labelZh}
                                                     </span>
                                                 </span>
@@ -667,8 +897,8 @@ export function SourcingWorkflowDialog({
                             <Separator className="my-4" />
                             <div className="space-y-2 text-sm">
                                 <div className="flex items-center justify-between gap-3">
-                                    <span className="text-slate-500">수량</span>
-                                    <div className="flex h-8 items-center rounded-md border bg-white">
+                                    <span className="text-muted-foreground">수량</span>
+                                    <div className="flex h-8 items-center rounded-md border bg-card">
                                         <Button
                                             type="button"
                                             variant="ghost"
@@ -702,14 +932,14 @@ export function SourcingWorkflowDialog({
 
                         {mode === "match-only" ? (
                             <div className="mt-4 grid gap-2">
-                                <Button className="h-11 w-full bg-orange-600 hover:bg-orange-700" onClick={saveMatch}>
+                                <Button className="h-11 w-full bg-primary hover:bg-primary" onClick={saveMatch}>
                                     주문확인
                                 </Button>
                                 {order.marketDeliveryMethod !== "DIRECT_DELIVERY" ? (
                                     <Button
                                         type="button"
                                         variant="outline"
-                                        className="h-11 w-full border-red-200 bg-white text-red-600 shadow-none hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+                                        className="h-11 w-full border-border bg-card text-foreground shadow-none hover:border-border hover:bg-muted hover:text-foreground"
                                         onClick={() => onRequestCancel?.(order)}
                                     >
                                         주문취소
@@ -718,7 +948,7 @@ export function SourcingWorkflowDialog({
                             </div>
                         ) : (
                             <Button
-                                className="mt-4 h-11 w-full bg-orange-600 hover:bg-orange-700"
+                                className="mt-4 h-11 w-full bg-primary hover:bg-primary"
                                 disabled={!hasRequiredInfo || isSelectedOptionSoldOut}
                                 onClick={() => {
                                     setPurchaseStep("forwarder");
@@ -733,6 +963,17 @@ export function SourcingWorkflowDialog({
                 )}
             </DialogContent>
         </Dialog>
+        {canOpenSourcingRefund && onRequestSourcingRefund && onAdvanceSourcingRefund && onSubmitSourcingReturnLogistics ? (
+            <SourcingRefundDialog
+                order={order}
+                open={sourcingRefundOpen}
+                onOpenChange={setSourcingRefundOpen}
+                onSubmit={onRequestSourcingRefund}
+                onAdvance={onAdvanceSourcingRefund}
+                onSubmitReturnLogistics={onSubmitSourcingReturnLogistics}
+            />
+        ) : null}
+        </>
     );
 }
 
@@ -754,9 +995,9 @@ function CandidateOptionControls({
     const isSoldOut = option.stock <= 0;
 
     return (
-        <div className="mt-auto space-y-3 border-t bg-slate-50/70 px-3 py-3">
+        <div className="mt-auto space-y-3 border-t bg-muted/70 px-3 py-3">
             <div>
-                <div className="mb-1.5 flex items-center justify-between text-[11px] font-semibold text-slate-500">
+                <div className="mb-1.5 flex items-center justify-between text-xs font-semibold text-muted-foreground">
                     <span>옵션 선택</span>
                     <span>{candidate.options.length}개 옵션</span>
                 </div>
@@ -767,12 +1008,12 @@ function CandidateOptionControls({
                         if (nextOption) onSelectOption(nextOption);
                     }}
                 >
-                    <SelectTrigger className="h-auto min-h-12 w-full bg-white py-2 text-left">
+                    <SelectTrigger className="h-auto min-h-12 w-full bg-card py-2 text-left">
                         <span className="min-w-0 flex-1">
-                            <span className="block truncate text-xs font-semibold text-slate-900">
+                            <span className="block truncate text-xs font-semibold text-foreground">
                                 {option.label}{isSoldOut ? " · 품절" : ""}
                             </span>
-                            <span className="mt-0.5 block truncate text-[11px] text-slate-500">{option.labelZh}</span>
+                            <span className="mt-0.5 block truncate text-xs text-muted-foreground">{option.labelZh}</span>
                         </span>
                     </SelectTrigger>
                     <SelectContent className="max-h-72" position="popper" side="bottom" align="start" avoidCollisions={false}>
@@ -780,14 +1021,14 @@ function CandidateOptionControls({
                             <SelectItem key={item.id} value={item.id} className="py-2">
                                 <span className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3">
                                     <span className="min-w-0">
-                                        <span className="block truncate text-xs font-semibold text-slate-900">
+                                        <span className="block truncate text-xs font-semibold text-foreground">
                                             {item.label}{item.stock <= 0 ? " · 품절" : ""}
                                         </span>
-                                        <span className="mt-0.5 block truncate text-[11px] text-slate-500">{item.labelZh}</span>
+                                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.labelZh}</span>
                                     </span>
-                                    <span className="text-right text-[11px] text-slate-500">
-                                        <span className="block font-semibold text-slate-800">{item.priceKrw.toLocaleString()}원</span>
-                                        <span className={cn(item.stock <= 0 && "text-red-600")}>{item.stock <= 0 ? "품절" : `재고 ${item.stock}`}</span>
+                                    <span className="text-right text-xs text-muted-foreground">
+                                        <span className="block font-semibold text-foreground">{item.priceKrw.toLocaleString()}원</span>
+                                        <span className={cn(item.stock <= 0 && "text-foreground")}>{item.stock <= 0 ? "품절" : `재고 ${item.stock}`}</span>
                                     </span>
                                 </span>
                             </SelectItem>
@@ -798,15 +1039,15 @@ function CandidateOptionControls({
 
             <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                    <div className="text-[10px] font-medium text-slate-500">옵션가격(재고)</div>
+                    <div className="text-xs font-medium text-muted-foreground">옵션가격(재고)</div>
                     <div className="mt-0.5 flex items-baseline gap-1 whitespace-nowrap">
-                        <span className="text-xs font-bold tabular-nums text-slate-900">{option.priceKrw.toLocaleString()}원</span>
-                        <span className={cn("text-[10px]", isSoldOut ? "font-semibold text-red-600" : "text-slate-500")}>
+                        <span className="text-xs font-bold tabular-nums text-foreground">{option.priceKrw.toLocaleString()}원</span>
+                        <span className={cn("text-xs", isSoldOut ? "font-semibold text-foreground" : "text-muted-foreground")}>
                             ({isSoldOut ? "품절" : `${option.stock}개`})
                         </span>
                     </div>
                 </div>
-                <div className="flex h-8 shrink-0 items-center rounded-md border bg-white shadow-sm">
+                <div className="flex h-8 shrink-0 items-center rounded-md border bg-card shadow-sm">
                     <Button
                         type="button"
                         variant="ghost"
@@ -849,8 +1090,13 @@ function SourcingProgressView({
     chatDraft,
     onChatDraftChange,
     onSendChat,
+    priceNegotiationStatus,
+    onRequestPriceNegotiation,
+    onCancelPriceNegotiation,
     onPay,
-    onClose,
+    onCancelOrder,
+    sourcingRefundActionLabel,
+    onOpenSourcingRefund,
 }: {
     order: Order;
     meta: SourcingProgressViewMeta;
@@ -860,142 +1106,246 @@ function SourcingProgressView({
     quantity: number;
     amount: number;
     forwarder: ForwarderProfile;
-    messages: SourcingChatMessage[];
+    messages: ChinaSellerChatMessage[];
     chatDraft: string;
     onChatDraftChange: (value: string) => void;
     onSendChat: () => void;
+    priceNegotiationStatus: PriceNegotiationStatus;
+    onRequestPriceNegotiation: () => void;
+    onCancelPriceNegotiation: () => void;
     onPay?: () => void;
-    onClose: () => void;
+    onCancelOrder?: () => void;
+    sourcingRefundActionLabel?: string;
+    onOpenSourcingRefund?: () => void;
 }) {
-    const stageTones: Partial<Record<SourcingProgressViewMeta["stage"], string>> = {
-        PAYMENT_WAITING: "border-amber-200 from-amber-50",
-        SOURCED: "border-emerald-200 from-emerald-50",
-        DELIVERED: "border-slate-200 from-slate-100",
-    };
-    const badgeTones: Partial<Record<SourcingProgressViewMeta["stage"], string>> = {
-        PAYMENT_WAITING: "bg-amber-100 text-amber-800",
-        SOURCED: "bg-emerald-100 text-emerald-800",
-        DELIVERED: "bg-slate-200 text-slate-700",
-    };
-    const stageTone = stageTones[meta.stage] ?? "border-slate-200 from-slate-50";
-    const badgeTone = badgeTones[meta.stage] ?? "bg-slate-100 text-slate-700";
     const timelineAt = meta.stage === "PAYMENT_WAITING"
         ? order.sourcingPaymentRequestedAt
         : order.sourcingLifeActualPayment?.paidAt ?? order.sourcingLifeSyncedAt;
     const paymentCompleted = meta.stage !== "PAYMENT_WAITING";
+    const forwarderName = order.sourcingForwarder?.name ?? forwarder.name;
+    const forwarderAddress = order.sourcingForwarder?.address
+        ?? `${forwarder.country} ${forwarder.province} ${forwarder.address1} ${forwarder.address2}`;
+    const forwarderReceiverName = order.sourcingForwarder?.receiverName ?? forwarder.receiverName;
+    const forwarderPhone = order.sourcingForwarder?.phone ?? forwarder.phone;
+    const invoiceLabel = order.domesticInvoice?.trackingNumber
+        ? `${order.domesticInvoice.carrier} ${order.domesticInvoice.trackingNumber}`
+        : "반영 결과 확인 중";
+    const chatTitle = paymentCompleted ? "결제완료 후 판매자 채팅" : "결제 전 판매자 채팅";
+    const chatDescription = paymentCompleted
+        ? "결제 전 대화를 이어서 확인하고 상품 준비와 중국 내 발송을 중국 판매자에게 문의할 수 있습니다."
+        : "상품 가격, 재고와 중국 내 배송 조건을 중국 판매자에게 확인한 뒤 결제를 진행하세요.";
+    const waitingMarginCalculation = calculateSourcingMargin(order, amount);
+    const marketLabel = MARKET_LABELS[order.marketType];
 
     return (
-        <div className="grid min-h-[680px] grid-cols-1 bg-slate-50/60 xl:grid-cols-[minmax(0,1fr)_360px]">
-            <main className="p-6 lg:p-8">
-                <div className="mx-auto max-w-3xl space-y-5">
-                    <div className={cn("rounded-2xl border bg-gradient-to-br to-white p-6 shadow-sm", stageTone)}>
-                        <div className="flex flex-wrap items-start justify-between gap-4">
-                            <div>
-                                <div className={cn("inline-flex rounded-full px-3 py-1 text-xs font-bold", badgeTone)}>{meta.label}</div>
-                                <h3 className="mt-3 text-2xl font-black tracking-tight text-slate-950">{meta.title}</h3>
-                                <p className="mt-2 text-sm leading-6 text-slate-600">{meta.description}</p>
+        <div className="bg-muted/40 lg:grid lg:h-[calc(92vh-81px)] lg:max-h-[760px] lg:min-h-[600px] lg:grid-cols-[minmax(0,1fr)_400px] lg:overflow-hidden">
+            <main className="min-w-0 lg:flex lg:min-h-0 lg:flex-col">
+                <div className="space-y-4 p-4 sm:p-5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:p-6">
+                    {paymentCompleted ? (
+                        <Card className="overflow-hidden rounded-xl border bg-card shadow-sm">
+                            <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
+                                <h4 className="text-sm font-bold text-foreground">구매대행 신청 상품</h4>
+                                <div className="flex flex-wrap items-center justify-end gap-2">
+                                    <span className="text-xs text-muted-foreground">마켓 주문 {order.marketOrderId}</span>
+                                    {onOpenSourcingRefund && sourcingRefundActionLabel ? (
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-8"
+                                            onClick={onOpenSourcingRefund}
+                                        >
+                                            {sourcingRefundActionLabel}
+                                        </Button>
+                                    ) : null}
+                                </div>
                             </div>
-                            <div className="rounded-xl bg-white px-4 py-3 text-right shadow-sm ring-1 ring-slate-200">
-                                <div className="text-[11px] font-semibold text-slate-500">{meta.stage === "PAYMENT_WAITING" ? "결제 예정금액" : "결제금액"}</div>
-                                <div className="mt-1 text-xl font-black text-slate-950">{amount.toLocaleString()}원</div>
+                            <div className="grid gap-4 p-5 sm:grid-cols-[80px_minmax(0,1fr)_auto] sm:items-center">
+                                <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border bg-muted">
+                                    <Image src={productThumbnail} alt={productName} fill sizes="80px" className="object-cover" />
+                                </div>
+                                <div className="min-w-0">
+                                    <div className="line-clamp-2 text-sm font-bold leading-5 text-foreground">{productName}</div>
+                                    <div className="mt-1 text-xs text-muted-foreground">{optionName} · 수량 {quantity}개</div>
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                        {order.sourcingLifeOrderId ? (
+                                            <Badge variant="outline" className="font-mono">{order.sourcingLifeOrderId}</Badge>
+                                        ) : null}
+                                        <Badge variant="secondary">갱신 {timelineAt ?? "확인 중"}</Badge>
+                                    </div>
+                                </div>
+                                <div className="border-t pt-3 text-left sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0 sm:text-right">
+                                    <div className="text-xs font-semibold text-muted-foreground">실제 결제금액</div>
+                                    <div className="mt-1 text-xl font-black tracking-tight text-foreground">{amount.toLocaleString()}원</div>
+                                </div>
                             </div>
-                        </div>
-                    </div>
+                        </Card>
+                    ) : (
+                        <>
+                            <PaymentWaitingProductComparison
+                                order={order}
+                                sourcingProductName={productName}
+                                sourcingProductThumbnail={productThumbnail}
+                                sourcingOptionName={optionName}
+                                sourcingQuantity={quantity}
+                                sourcingProductCost={amount}
+                                requestedAt={timelineAt}
+                            />
+                            <PaymentWaitingCostSummary
+                                calculation={waitingMarginCalculation}
+                                marketLabel={marketLabel}
+                            />
+                        </>
+                    )}
 
                     {paymentCompleted ? (
-                        <section className="overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-sm">
-                            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-100 bg-emerald-50/70 px-5 py-4">
+                        <Card className="overflow-hidden rounded-xl border bg-card shadow-sm">
+                            <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/50 px-5 py-4">
                                 <div>
-                                    <div className="text-sm font-black text-emerald-950">결제 및 타오바오 주문 처리</div>
-                                    <div className="mt-1 text-xs text-emerald-700">결제완료 이후 기록은 배송 단계가 변경되어도 계속 조회할 수 있습니다.</div>
+                                    <h4 className="text-sm font-bold text-foreground">결제 및 주문서 처리 결과</h4>
+                                    <p className="mt-1 text-xs text-muted-foreground">결제완료 후에는 재결제할 수 없으며 중국 판매자 채팅은 계속 이용할 수 있습니다.</p>
                                 </div>
-                                <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white">
-                                    <CheckCircle2 className="h-3.5 w-3.5" /> 처리 완료
+                                <Badge className="h-7 px-3"><CheckCircle2 /> 처리 완료</Badge>
+                            </div>
+                            <dl className="grid divide-y sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+                                <div className="p-5">
+                                    <dt className="flex items-center gap-2 text-xs font-semibold text-muted-foreground"><CreditCard className="h-4 w-4" /> 결제 정보</dt>
+                                    <dd className="mt-2 text-sm font-black text-foreground">{amount.toLocaleString()}원</dd>
+                                    <dd className="mt-1 text-xs text-muted-foreground">{order.sourcingLifeActualPayment?.paidAt ?? timelineAt ?? "완료시간 확인 중"}</dd>
+                                </div>
+                                <div className="p-5">
+                                    <dt className="flex items-center gap-2 text-xs font-semibold text-muted-foreground"><PackageCheck className="h-4 w-4" /> 소싱라이프 주문번호</dt>
+                                    <dd className="mt-2 break-all font-mono text-sm font-black text-foreground">{order.sourcingLifeOrderId ?? "생성 결과 확인 중"}</dd>
+                                    <dd className="mt-1 text-xs text-muted-foreground">{meta.stage === "SOURCED" ? "중국 판매자 발송대기" : meta.label}</dd>
+                                </div>
+                            </dl>
+                            <div className="grid gap-3 border-t px-5 py-4 sm:grid-cols-2">
+                                <div>
+                                    <div className="text-xs font-semibold text-muted-foreground">배송대행지 주문서</div>
+                                    <div className="mt-1 text-sm font-bold text-foreground">{order.domesticInvoice ? "접수·송장 반영 완료" : "접수 결과 확인 중"}</div>
+                                </div>
+                                <div>
+                                    <div className="text-xs font-semibold text-muted-foreground">국내송장 반영</div>
+                                    <div className="mt-1 break-all text-sm font-bold text-foreground">{invoiceLabel}</div>
                                 </div>
                             </div>
-                            <div className="grid divide-y sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-                                <div className="p-5">
-                                    <CreditCard className="h-5 w-5 text-emerald-600" />
-                                    <div className="mt-3 text-[11px] font-semibold text-slate-500">결제완료</div>
-                                    <div className="mt-1 font-black text-slate-950">{amount.toLocaleString()}원</div>
-                                    <div className="mt-1 text-[11px] text-slate-500">{order.sourcingLifeActualPayment?.paidAt ?? timelineAt ?? "완료시간 확인 중"}</div>
-                                </div>
-                                <div className="p-5">
-                                    <Warehouse className="h-5 w-5 text-sky-600" />
-                                    <div className="mt-3 text-[11px] font-semibold text-slate-500">배송대행지 자동입력</div>
-                                    <div className="mt-1 font-black text-slate-950">입력 완료</div>
-                                    <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">{order.sourcingForwarder?.name ?? forwarder.name}</div>
-                                </div>
-                                <div className="p-5">
-                                    <PackageCheck className="h-5 w-5 text-indigo-600" />
-                                    <div className="mt-3 text-[11px] font-semibold text-slate-500">소싱라이프 주문번호</div>
-                                    <div className="mt-1 break-all font-mono text-sm font-black text-slate-950">{order.sourcingLifeOrderId ?? "생성 중"}</div>
-                                    <div className="mt-1 text-[11px] text-slate-500">{meta.stage === "SOURCED" ? "중국 판매자 발송대기" : meta.label}</div>
-                                </div>
-                            </div>
-                        </section>
+                        </Card>
                     ) : null}
 
-                    <section className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-                        <div className="border-b px-5 py-4"><h4 className="font-bold text-slate-950">신청 상품</h4></div>
-                        <div className="flex gap-4 p-5">
-                            <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border bg-slate-50">
-                                <Image src={productThumbnail} alt={productName} fill sizes="80px" className="object-cover" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                                <div className="text-sm font-bold text-slate-950">{productName}</div>
-                                <div className="mt-1 text-xs text-slate-500">{optionName} · 수량 {quantity}개</div>
-                                <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                                    <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">마켓 주문 {order.marketOrderId}</span>
-                                    {order.sourcingLifeOrderId ? <span className="rounded-md bg-emerald-50 px-2 py-1 font-mono text-emerald-700">소싱 주문 {order.sourcingLifeOrderId}</span> : null}
-                                    <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">{meta.stage === "PAYMENT_WAITING" ? "신청" : "갱신"} {timelineAt ?? "확인 중"}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </section>
-
-                    <section className="rounded-2xl border bg-white p-5 shadow-sm">
+                    <Card className="rounded-xl border bg-card p-5 shadow-sm">
                         <div className="flex items-start gap-3">
-                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white"><Warehouse className="h-5 w-5" /></span>
-                            <div>
-                                <div className="text-xs font-semibold text-slate-500">선택 배대지</div>
-                                <div className="mt-1 font-bold text-slate-950">{forwarder.name}</div>
-                                <div className="mt-2 text-sm leading-6 text-slate-600">{forwarder.province} {forwarder.address1} {forwarder.address2}</div>
-                                <div className="mt-1 text-xs text-slate-500">{forwarder.receiverName} · {forwarder.phone}</div>
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground"><Warehouse className="h-5 w-5" /></span>
+                            <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div>
+                                        <div className="text-xs font-semibold text-muted-foreground">선택 배송대행지</div>
+                                        <div className="mt-1 text-sm font-bold text-foreground">{forwarderName}</div>
+                                    </div>
+                                    {!paymentCompleted && timelineAt ? <Badge variant="outline">신청 {timelineAt}</Badge> : null}
+                                </div>
+                                <div className="mt-2 text-sm leading-6 text-muted-foreground">{forwarderAddress}</div>
+                                <div className="mt-1 text-xs text-muted-foreground">{forwarderReceiverName} · {forwarderPhone}</div>
                             </div>
                         </div>
-                    </section>
-
-                    <div className="flex justify-end gap-2">
-                        <Button variant="outline" onClick={onClose}>목록으로</Button>
-                        {onPay ? <Button className="bg-slate-950 px-6 hover:bg-slate-800" onClick={onPay}>결제하기</Button> : null}
-                    </div>
+                    </Card>
                 </div>
+
+                {onPay ? (
+                    <div className="border-t bg-background px-4 py-4 sm:px-5 lg:px-6">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <p className="text-xs leading-5 text-muted-foreground">중국 판매자와 확인한 내용을 검토한 뒤 최종 결제를 진행하세요.</p>
+                            <div className={cn("grid gap-2 sm:min-w-[360px]", onCancelOrder ? "grid-cols-[0.8fr_1fr]" : "grid-cols-1")}>
+                                {onCancelOrder ? (
+                                    <Button variant="outline" onClick={onCancelOrder}>
+                                        주문 취소하기
+                                    </Button>
+                                ) : null}
+                                <Button
+                                    className="px-6"
+                                    disabled={!canProceedToPayment(priceNegotiationStatus)}
+                                    onClick={onPay}
+                                >
+                                    상품 결제하기
+                                </Button>
+                            </div>
+                        </div>
+                        {priceNegotiationStatus === "REQUESTED" ? (
+                            <p className="mt-2 text-xs text-muted-foreground sm:text-right">가격 협상 요청을 취소하거나 판매자 답변을 반영한 뒤 결제할 수 있습니다.</p>
+                        ) : null}
+                    </div>
+                ) : null}
             </main>
 
-            <aside className="flex min-h-[680px] flex-col border-l bg-white">
-                <div className="flex items-center gap-3 border-b px-5 py-4">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><MessageCircle className="h-4 w-4" /></span>
-                    <div>
-                        <div className="text-sm font-bold text-slate-950">소싱라이프 상담</div>
-                        <div className="text-[11px] text-emerald-600">{meta.stage === "PAYMENT_WAITING" ? "결제 전 문의 가능" : `${meta.label} 상담 가능`}</div>
-                    </div>
-                </div>
-                <div className="flex-1 space-y-3 overflow-y-auto bg-slate-50/70 p-4">
-                    {messages.map((message) => (
-                        <div key={message.id} className={cn("flex", message.sender === "operator" ? "justify-end" : "justify-start")}>
-                            <div className={cn(
-                                "max-w-[88%] rounded-2xl px-3.5 py-3 text-sm leading-5 shadow-sm",
-                                message.sender === "operator" ? "rounded-br-md bg-slate-900 text-white" : "rounded-bl-md border bg-white text-slate-700",
-                            )}>
-                                <div>{message.message}</div>
-                                <div className={cn("mt-1 text-[10px]", message.sender === "operator" ? "text-slate-300" : "text-slate-400")}>{message.sentAt}</div>
+            <aside className="flex min-h-[560px] flex-col border-t bg-card lg:min-h-0 lg:border-l lg:border-t-0" aria-label="중국 판매자 채팅">
+                <div className="border-b px-5 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"><MessageCircle className="h-5 w-5" /></span>
+                            <div className="min-w-0">
+                                <h3 className="text-sm font-bold text-foreground">중국 판매자 채팅</h3>
+                                <p className="mt-0.5 text-xs text-muted-foreground">{chatTitle}</p>
                             </div>
                         </div>
-                    ))}
+                        <Badge variant="outline" className="mt-1">채팅 가능</Badge>
+                    </div>
+                    <p className="mt-3 text-xs leading-5 text-muted-foreground">{chatDescription}</p>
                 </div>
+
+                <div className="min-h-[260px] flex-1 space-y-4 overflow-y-auto bg-muted/50 p-4" role="log" aria-live="polite" aria-label="중국 판매자 채팅 메시지">
+                    {messages.map((message) => {
+                        const isOperator = message.sender === "operator";
+                        return (
+                            <div key={message.id} className={cn("flex", isOperator ? "justify-end" : "justify-start")}>
+                                <div className="max-w-[88%]">
+                                    <div className={cn("mb-1 px-1 text-xs font-semibold text-muted-foreground", isOperator && "text-right")}>{isOperator ? "나" : "중국 판매자"}</div>
+                                    <div className={cn(
+                                        "rounded-2xl px-3.5 py-3 text-sm leading-5 shadow-sm",
+                                        isOperator ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md border bg-card text-foreground",
+                                    )}>
+                                        <div className="break-words">{message.message}</div>
+                                        <div className={cn("mt-1.5 text-xs", isOperator ? "text-primary-foreground/60" : "text-muted-foreground")}>{message.sentAt}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
                 <div className="border-t p-4">
+                    {!paymentCompleted ? (
+                        <div className="mb-4 rounded-lg border bg-muted/50 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <div className="text-sm font-semibold text-foreground">가격 협상</div>
+                                    <p className="mt-1 text-xs leading-5 text-muted-foreground">중국 판매자에게 가격 인하를 요청하거나 진행 중인 요청을 취소합니다.</p>
+                                </div>
+                                <Badge variant={priceNegotiationStatus === "REQUESTED" ? "default" : "outline"}>
+                                    {priceNegotiationStatus === "REQUESTED" ? "요청 중" : "대기"}
+                                </Badge>
+                            </div>
+                            <ButtonGroup className="mt-3 grid w-full grid-cols-2">
+                                <Button
+                                    type="button"
+                                    disabled={priceNegotiationStatus === "REQUESTED"}
+                                    onClick={onRequestPriceNegotiation}
+                                >
+                                    깎아줘
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    disabled={priceNegotiationStatus !== "REQUESTED"}
+                                    onClick={onCancelPriceNegotiation}
+                                >
+                                    깎아줘 취소
+                                </Button>
+                            </ButtonGroup>
+                            <p className="mt-2 text-xs leading-4 text-muted-foreground">요청은 채팅으로 전달되며 가격 변경이나 결제를 자동 실행하지 않습니다.</p>
+                        </div>
+                    ) : null}
+                    <label htmlFor={`china-seller-chat-${order.id}`} className="mb-2 block text-xs font-semibold text-foreground">판매자에게 보낼 메시지</label>
                     <Textarea
+                        id={`china-seller-chat-${order.id}`}
                         value={chatDraft}
                         onChange={(event) => onChatDraftChange(event.target.value)}
                         onKeyDown={(event) => {
@@ -1004,25 +1354,172 @@ function SourcingProgressView({
                                 onSendChat();
                             }
                         }}
-                        placeholder="상품, 가격, 배송 관련 문의를 입력하세요"
-                        className="min-h-24 resize-none bg-white"
+                        placeholder={paymentCompleted ? "상품 준비나 중국 내 발송을 문의하세요" : "상품, 가격, 재고, 중국 내 배송 조건을 문의하세요"}
+                        className="min-h-20 resize-none bg-background text-sm"
                     />
-                    <Button className="mt-2 w-full bg-emerald-600 hover:bg-emerald-700" disabled={!chatDraft.trim()} onClick={onSendChat}>
-                        <Send className="mr-2 h-4 w-4" /> 문의 보내기
-                    </Button>
-                    <p className="mt-2 text-[10px] leading-4 text-slate-400">개인통관부호·결제정보 등 민감정보는 채팅에 입력하지 마세요.</p>
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                        <span className="text-xs text-muted-foreground">Enter 전송 · Shift+Enter 줄바꿈</span>
+                        <Button size="sm" disabled={!chatDraft.trim()} onClick={onSendChat}>
+                            <Send className="h-4 w-4" /> 보내기
+                        </Button>
+                    </div>
+                    <p className="mt-3 border-t pt-3 text-xs leading-4 text-muted-foreground">개인통관부호·결제정보 등 민감정보는 채팅에 입력하지 마세요.</p>
                 </div>
             </aside>
         </div>
     );
 }
 
+function PaymentWaitingProductComparison({
+    order,
+    sourcingProductName,
+    sourcingProductThumbnail,
+    sourcingOptionName,
+    sourcingQuantity,
+    sourcingProductCost,
+    requestedAt,
+}: {
+    order: Order;
+    sourcingProductName: string;
+    sourcingProductThumbnail: string;
+    sourcingOptionName: string;
+    sourcingQuantity: number;
+    sourcingProductCost: number;
+    requestedAt?: string;
+}) {
+    return (
+        <Card className="overflow-hidden rounded-xl border bg-card shadow-sm" aria-labelledby="payment-waiting-product-comparison-title">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-4">
+                <div>
+                    <h4 id="payment-waiting-product-comparison-title" className="text-sm font-bold text-foreground">원주문 상품과 소싱상품 비교</h4>
+                    <p className="mt-1 text-xs text-muted-foreground">상품, 옵션과 수량이 주문 내용과 일치하는지 결제 전에 확인하세요.</p>
+                </div>
+                <span className="text-xs text-muted-foreground">마켓 주문 {order.marketOrderId}</span>
+            </div>
+            <div className="grid divide-y sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+                <section className="p-5" aria-labelledby="original-order-product-title">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                        <h5 id="original-order-product-title" className="text-sm font-bold text-foreground">원주문 상품</h5>
+                        <Badge variant="outline">판매 주문</Badge>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-[72px_minmax(0,1fr)]">
+                        <div className="relative h-[72px] w-[72px] overflow-hidden rounded-lg border bg-muted">
+                            <Image src={order.product.thumbnail} alt={order.product.name} fill sizes="72px" className="object-cover" />
+                        </div>
+                        <div className="min-w-0">
+                            <div className="line-clamp-2 text-sm font-bold leading-5 text-foreground">{order.product.name}</div>
+                            <div className="mt-1 text-xs leading-5 text-muted-foreground">{order.product.optionName} · 수량 {order.product.quantity}개</div>
+                            <div className="mt-3 flex items-end justify-between gap-3 border-t pt-3">
+                                <span className="text-xs font-semibold text-muted-foreground">판매 결제금액</span>
+                                <span className="text-base font-black text-foreground">{order.paymentPrice.toLocaleString()}원</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section className="p-5" aria-labelledby="sourcing-product-title">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                        <h5 id="sourcing-product-title" className="text-sm font-bold text-foreground">소싱상품</h5>
+                        <Badge variant="secondary">결제 대기</Badge>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-[72px_minmax(0,1fr)]">
+                        <div className="relative h-[72px] w-[72px] overflow-hidden rounded-lg border bg-muted">
+                            <Image src={sourcingProductThumbnail} alt={sourcingProductName} fill sizes="72px" className="object-cover" />
+                        </div>
+                        <div className="min-w-0">
+                            <div className="line-clamp-2 text-sm font-bold leading-5 text-foreground">{sourcingProductName}</div>
+                            <div className="mt-1 text-xs leading-5 text-muted-foreground">{sourcingOptionName} · 수량 {sourcingQuantity}개</div>
+                            <div className="mt-3 flex items-end justify-between gap-3 border-t pt-3">
+                                <div>
+                                    <div className="text-xs font-semibold text-muted-foreground">상품원가</div>
+                                    <div className="mt-0.5 text-xs text-muted-foreground">신청 {requestedAt ?? "확인 중"}</div>
+                                </div>
+                                <span className="text-base font-black text-foreground">{sourcingProductCost.toLocaleString()}원</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </Card>
+    );
+}
+
+function PaymentWaitingCostSummary({
+    calculation,
+    marketLabel,
+}: {
+    calculation: SourcingMarginCalculation;
+    marketLabel: string;
+}) {
+    const estimatedTotalCost = calculation.sourcingTotalCost + calculation.estimatedForwarderShippingFee;
+    const hasPositiveMargin = calculation.expectedMargin >= 0;
+
+    return (
+        <Card className="overflow-hidden rounded-xl border bg-card shadow-sm" aria-labelledby="payment-waiting-cost-summary-title">
+            <div className="border-b px-5 py-4">
+                <h4 id="payment-waiting-cost-summary-title" className="text-sm font-bold text-foreground">예상 비용 및 수익</h4>
+                <p className="mt-1 text-xs text-muted-foreground">현재 상품원가와 예상 배송비를 기준으로 계산한 결제 전 손익입니다.</p>
+            </div>
+            <div className="grid sm:grid-cols-[minmax(0,1.25fr)_minmax(220px,0.75fr)]">
+                <dl className="grid grid-cols-2 gap-px bg-border">
+                    <div className="bg-card p-4">
+                        <dt className="text-xs font-semibold text-muted-foreground">상품원가</dt>
+                        <dd className="mt-1 text-sm font-black text-foreground">{calculation.productCost.toLocaleString()}원</dd>
+                    </div>
+                    <div className="bg-card p-4">
+                        <dt className="text-xs font-semibold text-muted-foreground">소싱처 이용료</dt>
+                        <dd className="mt-1 text-sm font-black text-foreground">{calculation.sourcingServiceFee.toLocaleString()}원</dd>
+                    </div>
+                    <div className="bg-card p-4">
+                        <dt className="text-xs font-semibold text-muted-foreground">환전 수수료</dt>
+                        <dd className="mt-1 text-sm font-black text-foreground">{calculation.currencyExchangeFee.toLocaleString()}원</dd>
+                    </div>
+                    <div className="bg-card p-4">
+                        <dt className="text-xs font-semibold text-muted-foreground">예상 배송비</dt>
+                        <dd className="mt-1 text-sm font-black text-foreground">{calculation.estimatedForwarderShippingFee.toLocaleString()}원</dd>
+                    </div>
+                    <div className="col-span-2 flex items-center justify-between gap-3 bg-muted/50 p-4">
+                        <dt className="text-sm font-bold text-foreground">예상 총비용</dt>
+                        <dd className="text-base font-black text-foreground">{estimatedTotalCost.toLocaleString()}원</dd>
+                    </div>
+                </dl>
+
+                <div className="border-t bg-muted/30 p-5 sm:border-l sm:border-t-0">
+                    <div className="flex items-start justify-between gap-3">
+                        <div>
+                            <div className="text-xs font-semibold text-muted-foreground">예상 순이익</div>
+                            <div className="mt-1 text-2xl font-black tracking-tight text-foreground">
+                                {calculation.expectedMargin < 0 ? "-" : ""}{Math.abs(calculation.expectedMargin).toLocaleString()}원
+                            </div>
+                        </div>
+                        <Badge variant={hasPositiveMargin ? "default" : "outline"}>{hasPositiveMargin ? "수익 예상" : "역마진 예상"}</Badge>
+                    </div>
+                    <div className="mt-4 flex items-center justify-between border-t pt-4">
+                        <span className="text-sm font-semibold text-muted-foreground">마진율</span>
+                        <span className="text-lg font-black text-foreground">{calculation.expectedMarginRate.toFixed(1)}%</span>
+                    </div>
+                    <dl className="mt-4 space-y-2 border-t pt-4 text-xs">
+                        <div className="flex justify-between gap-3">
+                            <dt className="text-muted-foreground">정산예상금액</dt>
+                            <dd className="font-semibold text-foreground">{calculation.expectedSettlement.toLocaleString()}원</dd>
+                        </div>
+                        <div className="flex justify-between gap-3">
+                            <dt className="text-muted-foreground">{marketLabel} 판매 수수료</dt>
+                            <dd className="font-semibold text-foreground">{calculation.marketFee.toLocaleString()}원</dd>
+                        </div>
+                    </dl>
+                </div>
+            </div>
+        </Card>
+    );
+}
+
 function AgreementRow({ label, strong = false }: { label: string; strong?: boolean }) {
     return (
-        <label className="flex items-center gap-2 border-b py-3 text-sm text-slate-700">
+        <label className="flex items-center gap-2 border-b py-3 text-sm text-foreground">
             <Checkbox />
-            <span className={cn(strong && "font-bold text-slate-950")}>{label}</span>
-            <span className="ml-auto text-slate-400">⌄</span>
+            <span className={cn(strong && "font-bold text-foreground")}>{label}</span>
+            <span className="ml-auto text-muted-foreground">⌄</span>
         </label>
     );
 }
@@ -1045,22 +1542,27 @@ function PaymentSummary({
     onCancel: () => void;
 }) {
     return (
-        <aside className="h-fit rounded-3xl border bg-white p-5 shadow-sm">
+        <Card className="h-fit rounded-3xl border bg-card p-5 shadow-sm">
             {costOnly ? (
-                <div className="rounded-2xl bg-slate-50 px-4 py-5 text-center ring-1 ring-slate-200/70">
-                    <div className="text-xs font-bold text-slate-500">소싱 총비용</div>
-                    <div className="mt-2 text-2xl font-black tracking-tight text-slate-950">₩{calculation.sourcingTotalCost.toLocaleString()}</div>
+                <div className="rounded-2xl bg-muted px-4 py-5 text-center ring-1 ring-ring/70">
+                    <div className="text-xs font-bold text-muted-foreground">소싱 총비용</div>
+                    <div className="mt-2 text-2xl font-black tracking-tight text-foreground">₩{calculation.sourcingTotalCost.toLocaleString()}</div>
                 </div>
             ) : (
                 <CostAndMarginBreakdown amountCny={amountCny} calculation={calculation} marketLabel={marketLabel} />
             )}
-            <Button className="mt-6 h-10 w-full rounded-full bg-[#ff8f80] font-bold hover:bg-[#ff7b6b]" onClick={onPrimaryClick}>
+            <Button className="mt-6 h-10 w-full rounded-full font-bold" onClick={onPrimaryClick}>
                 {primaryLabel}
             </Button>
             <Button variant="outline" className="mt-2 h-10 w-full rounded-full" onClick={onCancel}>
                 취소
             </Button>
-        </aside>
+            {costOnly && (
+                <div className="mt-4 rounded-xl border border-border bg-muted px-4 py-3 text-xs leading-5 text-foreground">
+                    구매대행 신청 후 주문은 결제되지 않고 <strong>결제대기</strong>에 머뭅니다. 견적과 중국 판매자 확인 내용을 검토한 뒤 별도의 `결제하기` 단계에서 결제합니다.
+                </div>
+            )}
+        </Card>
     );
 }
 
@@ -1084,15 +1586,15 @@ function CostAndMarginBreakdown({
 function CostBreakdown({ amountCny, calculation }: { amountCny: number; calculation: SourcingMarginCalculation }) {
     return (
         <section>
-            <h4 className="mb-3 text-xs font-black tracking-tight text-slate-950">비용 구성</h4>
+            <h4 className="mb-3 text-xs font-black tracking-tight text-foreground">비용 구성</h4>
             <div className="space-y-2.5">
                 <div className="flex items-start justify-between gap-3">
-                    <span className="text-slate-500">상품 금액</span>
-                    <span className="text-right font-bold">₩{calculation.productCost.toLocaleString()}<span className="block text-[10px] font-medium text-slate-400">(¥{amountCny.toLocaleString()})</span></span>
+                    <span className="text-muted-foreground">상품 금액</span>
+                    <span className="text-right font-bold">₩{calculation.productCost.toLocaleString()}<span className="block text-xs font-medium text-muted-foreground">(¥{amountCny.toLocaleString()})</span></span>
                 </div>
-                <div className="flex justify-between gap-3"><span className="text-slate-500">소싱처 이용료</span><span className="font-semibold">₩{calculation.sourcingServiceFee.toLocaleString()}</span></div>
-                <div className="flex justify-between gap-3"><span className="text-slate-500">통화 환전 수수료</span><span className="font-semibold">₩{calculation.currencyExchangeFee.toLocaleString()}</span></div>
-                <div className="flex justify-between border-t pt-3"><span className="font-bold text-slate-900">소싱 총비용</span><span className="font-black text-slate-950">₩{calculation.sourcingTotalCost.toLocaleString()}</span></div>
+                <div className="flex justify-between gap-3"><span className="text-muted-foreground">소싱처 이용료</span><span className="font-semibold">₩{calculation.sourcingServiceFee.toLocaleString()}</span></div>
+                <div className="flex justify-between gap-3"><span className="text-muted-foreground">통화 환전 수수료</span><span className="font-semibold">₩{calculation.currencyExchangeFee.toLocaleString()}</span></div>
+                <div className="flex justify-between border-t pt-3"><span className="font-bold text-foreground">소싱 총비용</span><span className="font-black text-foreground">₩{calculation.sourcingTotalCost.toLocaleString()}</span></div>
             </div>
         </section>
     );
@@ -1102,28 +1604,30 @@ function MarginAnalysis({
     calculation,
     marketLabel,
     wide = false,
+    showTitle = true,
 }: {
     calculation: SourcingMarginCalculation;
     marketLabel: string;
     wide?: boolean;
+    showTitle?: boolean;
 }) {
-    const marginColor = calculation.expectedMargin >= 0 ? "text-emerald-700" : "text-red-600";
+    const marginColor = calculation.expectedMargin >= 0 ? "text-foreground" : "text-foreground";
 
     return (
-        <section className={cn("rounded-xl bg-slate-50 p-3.5 ring-1 ring-slate-200/70", wide && "p-5")}>
-            <h4 className={cn("mb-3 text-xs font-black tracking-tight text-slate-950", wide && "text-sm")}>마진 분석</h4>
+        <Card className={cn("rounded-xl bg-muted p-3.5 ring-1 ring-ring/70", wide && "p-5")}>
+            {showTitle && <h4 className={cn("mb-3 text-xs font-black tracking-tight text-foreground", wide && "text-sm")}>마진 분석</h4>}
             <div className={cn("space-y-2.5", wide && "grid grid-cols-2 gap-x-8 gap-y-2.5 space-y-0")}>
-                <div className="flex items-start justify-between gap-3"><span className="font-semibold text-slate-700">결제 금액</span><span className="font-bold">₩{calculation.marketPaymentAmount.toLocaleString()}</span></div>
-                <div className="flex justify-between gap-3 text-xs text-slate-500"><span>- {marketLabel} 판매 수수료</span><span>-₩{calculation.marketFee.toLocaleString()}</span></div>
-                <div className="flex justify-between gap-3 text-xs text-slate-500"><span>- 소싱 상품 금액</span><span>-₩{calculation.productCost.toLocaleString()}</span></div>
-                <div className="flex justify-between gap-3 text-xs text-slate-500"><span>- 소싱처 이용료</span><span>-₩{calculation.sourcingServiceFee.toLocaleString()}</span></div>
-                <div className="flex justify-between gap-3 text-xs text-slate-500"><span>- 통화 환전 수수료</span><span>-₩{calculation.currencyExchangeFee.toLocaleString()}</span></div>
-                <div className="flex justify-between gap-3 text-xs text-slate-500"><span>- 배송대행지 운임료 <span className="text-[10px]">(예상)</span></span><span>-₩{calculation.estimatedForwarderShippingFee.toLocaleString()}</span></div>
+                <div className="flex items-start justify-between gap-3"><span className="font-semibold text-foreground">결제 금액</span><span className="font-bold">₩{calculation.marketPaymentAmount.toLocaleString()}</span></div>
+                <div className="flex justify-between gap-3 text-xs text-muted-foreground"><span>- {marketLabel} 판매 수수료</span><span>-₩{calculation.marketFee.toLocaleString()}</span></div>
+                <div className="flex justify-between gap-3 text-xs text-muted-foreground"><span>- 소싱 상품 금액</span><span>-₩{calculation.productCost.toLocaleString()}</span></div>
+                <div className="flex justify-between gap-3 text-xs text-muted-foreground"><span>- 소싱처 이용료</span><span>-₩{calculation.sourcingServiceFee.toLocaleString()}</span></div>
+                <div className="flex justify-between gap-3 text-xs text-muted-foreground"><span>- 통화 환전 수수료</span><span>-₩{calculation.currencyExchangeFee.toLocaleString()}</span></div>
+                <div className="flex justify-between gap-3 text-xs text-muted-foreground"><span>- 배송대행지 운임료 <span className="text-xs">(예상)</span></span><span>-₩{calculation.estimatedForwarderShippingFee.toLocaleString()}</span></div>
             </div>
-            <div className={cn("mt-3 border-t border-slate-200 pt-3", wide && "grid grid-cols-2 gap-8")}>
-                <div className="flex justify-between"><span className="font-black text-slate-950">예상 순이익</span><span className={cn("text-base font-black", marginColor)}>{calculation.expectedMargin < 0 ? "-" : ""}₩{Math.abs(calculation.expectedMargin).toLocaleString()}</span></div>
-                <div className="mt-1 flex justify-between sm:mt-0"><span className="text-xs font-semibold text-slate-500">마진율</span><span className={cn("font-black", marginColor)}>{calculation.expectedMarginRate.toFixed(1)}%</span></div>
+            <div className={cn("mt-3 border-t border-border pt-3", wide && "grid grid-cols-2 gap-8")}>
+                <div className="flex justify-between"><span className="font-black text-foreground">예상 순이익</span><span className={cn("text-base font-black", marginColor)}>{calculation.expectedMargin < 0 ? "-" : ""}₩{Math.abs(calculation.expectedMargin).toLocaleString()}</span></div>
+                <div className="mt-1 flex justify-between sm:mt-0"><span className="text-xs font-semibold text-muted-foreground">마진율</span><span className={cn("font-black", marginColor)}>{calculation.expectedMarginRate.toFixed(1)}%</span></div>
             </div>
-        </section>
+        </Card>
     );
 }

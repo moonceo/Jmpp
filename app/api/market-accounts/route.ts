@@ -65,7 +65,32 @@ const createSchema = z.discriminatedUnion("marketCode", [
             siteSellerId: z.string().trim().min(1).max(200),
         }).strict(),
     }).strict(),
-]);
+]).superRefine((value, context) => {
+    const preference = value.settings?.shippingProcessPreference;
+    const configurable = value.marketCode === "NAVER" || value.marketCode === "ELEVEN_STREET";
+
+    if (configurable && preference === undefined) {
+        context.addIssue({
+            code: "custom",
+            path: ["settings", "shippingProcessPreference"],
+            message: "스마트스토어와 11번가는 연동할 때 기본 배송중 처리 방식을 선택해야 합니다.",
+        });
+    }
+    if (!configurable && preference === "DIRECT_DELIVERY") {
+        context.addIssue({
+            code: "custom",
+            path: ["settings", "shippingProcessPreference"],
+            message: "이 마켓은 송장입력 방식만 사용할 수 있습니다.",
+        });
+    }
+    if (value.marketCode !== "NAVER" && preference === "OVERSEAS_OTHER_DELIVERY") {
+        context.addIssue({
+            code: "custom",
+            path: ["settings", "shippingProcessPreference"],
+            message: "스마트스토어만 해외기타배송을 기본 방식으로 사용할 수 있습니다.",
+        });
+    }
+});
 
 function isUniqueViolation(error: unknown): boolean {
     return typeof error === "object" && error !== null && "code" in error

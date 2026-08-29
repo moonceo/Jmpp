@@ -154,6 +154,23 @@ describe("Naver provider target reconciliation", () => {
         }))).toMatchObject({ state: "INDETERMINATE" });
     });
 
+    it("reconciles unified shipping with the provider's actual dispatch method", () => {
+        const command = parseNaverCommandPayload("SHIPPING_PROCESS", {
+            requestedMethod: "DIRECT_DELIVERY",
+            dispatchAt: NOW,
+        })!;
+        expect(inspectNaverProviderTarget(command, detail({
+            productOrderStatus: "DELIVERING",
+            deliveryMethod: "DELIVERY",
+            deliveryCompanyCode: "CJ",
+            trackingNumber: "1234567890",
+        }))).toEqual({
+            state: "APPLIED",
+            providerStatus: "DELIVERING",
+            deliveryMethod: "DELIVERY",
+        });
+    });
+
     it("keeps a mismatched buyer cancellation indeterminate without treating it as applied", () => {
         const command = parseNaverCommandPayload("SELLER_CANCEL", {
             reasonCode: "SOLD_OUT",
@@ -332,10 +349,10 @@ describe("Naver local preconditions", () => {
             accountCapabilities: { INVOICE_SUBMIT: { mode: "API" } },
             item: item(),
             detail: detail(),
-        })).toMatchObject({ ok: false, code: "PURCHASE_AND_INVOICE_REQUIRED" });
+        })).toMatchObject({ ok: false, code: "PURCHASE_REQUIRED" });
     });
 
-    it("allows direct delivery to remain preparing before purchase", () => {
+    it("rejects direct delivery before purchase", () => {
         expect(validate({
             command: direct,
             expectedVersion: 3,
@@ -343,6 +360,119 @@ describe("Naver local preconditions", () => {
             accountAuthStatus: "CONNECTED",
             accountCapabilities: { DIRECT_DELIVERY: { mode: "API" } },
             item: item(),
+            detail: detail(),
+        })).toMatchObject({ ok: false, code: "PURCHASE_REQUIRED" });
+    });
+
+    it("rejects unified shipping before purchase", () => {
+        const shipping = parseNaverCommandPayload("SHIPPING_PROCESS", {
+            requestedMethod: "DIRECT_DELIVERY",
+            dispatchAt: NOW,
+        })!;
+        expect(validate({
+            command: shipping,
+            expectedVersion: 3,
+            accountActive: true,
+            accountAuthStatus: "CONNECTED",
+            accountCapabilities: { DIRECT_DELIVERY: { mode: "API" } },
+            item: item(),
+            detail: detail(),
+        })).toMatchObject({ ok: false, code: "PURCHASE_REQUIRED" });
+    });
+
+    it("rejects overseas-other shipping before purchase", () => {
+        const shipping = parseNaverCommandPayload("SHIPPING_PROCESS", {
+            requestedMethod: "OVERSEAS_OTHER_DELIVERY",
+            carrierCode: "CH1",
+            trackingNumber: "YT202608240001CN",
+            dispatchAt: NOW,
+        })!;
+        expect(validate({
+            command: shipping,
+            expectedVersion: 3,
+            accountActive: true,
+            accountAuthStatus: "CONNECTED",
+            accountCapabilities: { INVOICE_SUBMIT: { mode: "API" } },
+            item: item(),
+            detail: detail(),
+        })).toMatchObject({ ok: false, code: "PURCHASE_REQUIRED" });
+    });
+
+    it("allows direct delivery from ready-to-ship after purchase and invoice", () => {
+        expect(validate({
+            command: direct,
+            expectedVersion: 3,
+            accountActive: true,
+            accountAuthStatus: "CONNECTED",
+            accountCapabilities: { DIRECT_DELIVERY: { mode: "API" } },
+            item: item({
+                internalWorkStatus: "READY_TO_SHIP",
+                sourcingStatus: "INVOICE_RECEIVED",
+                marketDeliveryMethod: "DIRECT_DELIVERY",
+                domesticCarrierCode: "CJ",
+                domesticTrackingNumber: "1234567890",
+            }),
+            detail: detail(),
+        })).toEqual({ ok: true });
+    });
+
+    it("allows provisional direct delivery for a parcel order after purchase", () => {
+        expect(validate({
+            command: direct,
+            expectedVersion: 3,
+            accountActive: true,
+            accountAuthStatus: "CONNECTED",
+            accountCapabilities: { DIRECT_DELIVERY: { mode: "API" } },
+            item: item({
+                internalWorkStatus: "READY_TO_SHIP",
+                sourcingStatus: "INVOICE_RECEIVED",
+                marketDeliveryMethod: "DELIVERY",
+            }),
+            detail: detail(),
+        })).toEqual({ ok: true });
+    });
+
+    it("blocks a stored domestic invoice before domestic shipping starts", () => {
+        const invoice = parseNaverCommandPayload("INVOICE_SUBMIT", {
+            carrierCode: "CJ",
+            trackingNumber: "1234567890",
+            dispatchAt: NOW,
+        })!;
+        expect(validate({
+            command: invoice,
+            expectedVersion: 3,
+            accountActive: true,
+            accountAuthStatus: "CONNECTED",
+            accountCapabilities: { INVOICE_SUBMIT: { mode: "API" } },
+            item: item({
+                internalWorkStatus: "READY_TO_SHIP",
+                sourcingStatus: "INVOICE_RECEIVED",
+                domesticCarrierCode: "CJ",
+                domesticTrackingNumber: "1234567890",
+            }),
+            detail: detail(),
+        })).toMatchObject({ ok: false, code: "DOMESTIC_SHIPPING_NOT_STARTED" });
+    });
+
+    it("allows the domestic invoice after domestic shipping starts", () => {
+        const invoice = parseNaverCommandPayload("INVOICE_SUBMIT", {
+            carrierCode: "CJ",
+            trackingNumber: "1234567890",
+            dispatchAt: NOW,
+        })!;
+        expect(validate({
+            command: invoice,
+            expectedVersion: 3,
+            accountActive: true,
+            accountAuthStatus: "CONNECTED",
+            accountCapabilities: { INVOICE_SUBMIT: { mode: "API" } },
+            item: item({
+                internalWorkStatus: "READY_TO_SHIP",
+                sourcingStatus: "INVOICE_RECEIVED",
+                domesticCarrierCode: "CJ",
+                domesticTrackingNumber: "1234567890",
+                attributes: { sourcingProgressStage: "DOMESTIC_SHIPPING" },
+            }),
             detail: detail(),
         })).toEqual({ ok: true });
     });
@@ -544,15 +674,36 @@ describe("Naver success projection", () => {
         });
     });
 
-    it("keeps direct delivery in PREPARING until purchase and invoice exist", () => {
+    it("rejects a direct-delivery success projection when purchase was not completed", () => {
         expect(deriveNaverSuccessPatch({
             type: "DIRECT_DELIVERY",
             item: item(),
             commandId: "command-1",
             now: NOW,
         })).toMatchObject({
+            ok: false,
+            code: "LOCAL_INVARIANT_CONFLICT",
+            violations: expect.arrayContaining(["MARKET_SUBMISSION_REQUIRES_PURCHASE"]),
+        });
+    });
+
+    it("advances a paid ready-to-ship direct delivery after market confirmation", () => {
+        expect(deriveNaverSuccessPatch({
+            type: "DIRECT_DELIVERY",
+            item: item({
+                internalWorkStatus: "READY_TO_SHIP",
+                sourcingStatus: "INVOICE_RECEIVED",
+                marketFulfillmentStatus: "SHIPPING",
+                marketDeliveryMethod: "DIRECT_DELIVERY",
+                domesticCarrierCode: "CJ",
+                domesticTrackingNumber: "1234567890",
+                marketInvoiceSubmittedAt: NOW,
+            }),
+            commandId: "command-2",
+            now: NOW,
+        })).toMatchObject({
             ok: true,
-            internalWorkStatus: "PREPARING",
+            internalWorkStatus: "SHIPPING",
             marketDeliveryMethod: "DIRECT_DELIVERY",
         });
     });
@@ -567,6 +718,26 @@ describe("Naver success projection", () => {
             }),
             commandId: "command-1",
             now: NOW,
+        })).toMatchObject({
+            ok: true,
+            internalWorkStatus: "SHIPPING",
+            marketDeliveryMethod: "DELIVERY",
+        });
+    });
+
+    it("uses provider evidence instead of the requested method when reconciling shipping", () => {
+        expect(deriveNaverSuccessPatch({
+            type: "SHIPPING_PROCESS",
+            item: item({
+                internalWorkStatus: "READY_TO_SHIP",
+                sourcingStatus: "INVOICE_RECEIVED",
+                domesticCarrierCode: "CJ",
+                domesticTrackingNumber: "1234567890",
+            }),
+            commandId: "command-3",
+            now: NOW,
+            payload: { requestedMethod: "DIRECT_DELIVERY", dispatchAt: NOW },
+            providerDeliveryMethod: "DELIVERY",
         })).toMatchObject({
             ok: true,
             internalWorkStatus: "SHIPPING",

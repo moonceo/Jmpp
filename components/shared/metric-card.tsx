@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Info } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -36,7 +37,9 @@ export function MetricCard({
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <Info className="h-3.5 w-3.5 text-muted-foreground/70 hover:text-foreground cursor-help" />
+                                    <Button type="button" variant="ghost" size="icon-xs" aria-label={`${label} 설명`}>
+                                        <Info className="size-3.5 text-muted-foreground" />
+                                    </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>
                                     <p className="text-xs">{tooltip}</p>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import {
     AlertTriangle,
@@ -15,8 +15,18 @@ import {
     Truck,
 } from "lucide-react";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/shared/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import {
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyMedia,
+    EmptyTitle,
+} from "@/components/ui/empty";
 import {
     Dialog,
     DialogContent,
@@ -25,6 +35,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
 import {
     Select,
     SelectContent,
@@ -40,9 +51,12 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { withBrowserSecurity } from "@/lib/client/http";
 import {
     DEMO_BUYER_CLAIMS,
+    DEMO_SELLER_CANCEL_CLAIMS,
+    DEMO_SELLER_CANCEL_STORAGE_KEY,
     type DemoClaimAction,
     type DemoClaimDetail,
 } from "@/lib/mock-data/claims";
@@ -54,6 +68,7 @@ import type {
     ClaimRequester,
     ClaimStatus,
     ClaimType,
+    PurchaseCompensationStatus,
 } from "@/lib/server/claims/types";
 
 type ApiEnvelope<T> = { data?: T; error?: { message?: string } };
@@ -63,6 +78,7 @@ type DeadlineFilter = "ALL" | "OVERDUE" | "DUE_24H";
 type MarketFilter = "ALL" | "NAVER" | "COUPANG";
 type PeriodFilter = "TODAY" | "3D" | "7D" | "30D" | "ALL";
 type ClaimStageFilter = "ALL" | "NEW" | "PROCESSING" | "COMPLETED";
+type RequesterFilter = "ALL" | "CUSTOMER" | "SELLER";
 
 const CLAIM_TYPE_LABELS: Record<ClaimType, string> = {
     CANCEL: "취소",
@@ -88,6 +104,24 @@ const CLAIM_STATUS_LABELS: Record<ClaimStatus, string> = {
     COMPLETED: "처리 완료",
 };
 
+const PURCHASE_COMPENSATION_LABELS: Record<PurchaseCompensationStatus, string> = {
+    NOT_REQUIRED: "후속조치 없음",
+    PENDING: "소싱환불 요청 대기",
+    IN_PROGRESS: "소싱라이프 처리 중",
+    SUCCEEDED: "소싱환불 완료",
+    FAILED: "소싱환불 실패",
+    NEEDS_ATTENTION: "소싱환불 검토 필요",
+    UNKNOWN: "결과 확인 필요",
+};
+
+export function getSourcingCompensationGuidance(status: PurchaseCompensationStatus): string {
+    if (status === "NOT_REQUIRED") return "이 클레임에 연결된 소싱 구매 후속조치가 없습니다.";
+    if (status === "SUCCEEDED") return "소싱 구매금액 회수가 완료됐습니다. 마켓 환불 완료 여부는 별도로 확인하세요.";
+    if (status === "PENDING" || status === "IN_PROGRESS") return "소싱라이프 처리 결과와 예상 환불금·차감비용을 기다리는 중입니다.";
+    if (status === "NEEDS_ATTENTION") return "소싱 결제완료 상품이므로 마켓 처리와 별도로 소싱환불을 검토해야 합니다.";
+    return "소싱라이프 응답과 커머스라이프 기록을 대사해 후속조치를 결정하세요.";
+}
+
 const MARKET_LABELS = {
     NAVER: "네이버 스마트스토어",
     COUPANG: "쿠팡",
@@ -104,6 +138,14 @@ const CLAIM_STAGE_LABELS: Record<ClaimStageFilter, string> = {
     NEW: "신규요청",
     PROCESSING: "처리중",
     COMPLETED: "완료",
+};
+
+const REQUESTER_LABELS: Record<ClaimRequester, string> = {
+    CUSTOMER: "구매자 신청",
+    SELLER: "판매자 직접취소",
+    MARKET: "마켓 접수",
+    INTERNAL: "내부 접수",
+    UNKNOWN: "접수 주체 미확인",
 };
 
 const PERIOD_OPTIONS: Array<{ value: PeriodFilter; label: string; days?: number }> = [
@@ -169,16 +211,16 @@ async function apiGet<T>(url: string): Promise<T> {
 }
 
 function typeBadgeClass(type: ClaimType): string {
-    if (type === "CANCEL") return "border-red-200 bg-red-50 text-red-700";
-    if (type === "RETURN") return "border-amber-200 bg-amber-50 text-amber-800";
-    return "border-blue-200 bg-blue-50 text-blue-700";
+    if (type === "CANCEL") return "border-border bg-muted text-foreground";
+    if (type === "RETURN") return "border-border bg-muted text-foreground";
+    return "border-border bg-muted text-foreground";
 }
 
 function statusBadgeClass(status: ClaimStatus): string {
-    if (["COMPLETED", "REFUNDED", "REPLACEMENT_SHIPPED"].includes(status)) return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    if (["REJECTED", "WITHDRAWN"].includes(status)) return "border-slate-200 bg-slate-100 text-slate-600";
-    if (status === "ON_HOLD") return "border-orange-200 bg-orange-50 text-orange-700";
-    return "border-violet-200 bg-violet-50 text-violet-700";
+    if (["COMPLETED", "REFUNDED", "REPLACEMENT_SHIPPED"].includes(status)) return "border-border bg-muted text-foreground";
+    if (["REJECTED", "WITHDRAWN"].includes(status)) return "border-border bg-muted text-muted-foreground";
+    if (status === "ON_HOLD") return "border-border bg-muted text-foreground";
+    return "border-border bg-muted text-foreground";
 }
 
 function deadlineLabel(claim: ClaimListItem): string {
@@ -196,7 +238,9 @@ function claimStage(status: ClaimStatus): Exclude<ClaimStageFilter, "ALL"> {
     return "PROCESSING";
 }
 
-export function getBuyerClaimActions(claim: Pick<ClaimDetail, "marketCode" | "claimType" | "normalizedStatus" | "marketStatusRaw">): DemoClaimAction[] {
+export function getBuyerClaimActions(claim: Pick<ClaimDetail, "marketCode" | "claimType" | "normalizedStatus" | "marketStatusRaw"> & Partial<Pick<ClaimDetail, "requesterType">>): DemoClaimAction[] {
+    if (claim.requesterType && claim.requesterType !== "CUSTOMER") return [];
+
     const apiAction = (
         key: DemoClaimAction["key"],
         label: string,
@@ -270,12 +314,16 @@ export function getBuyerClaimActions(claim: Pick<ClaimDetail, "marketCode" | "cl
 
 export function ClaimsPageClient() {
     const [demoMode, setDemoMode] = useState(true);
-    const [demoClaims, setDemoClaims] = useState<DemoClaimDetail[]>(DEMO_BUYER_CLAIMS);
+    const [demoClaims, setDemoClaims] = useState<DemoClaimDetail[]>([
+        ...DEMO_SELLER_CANCEL_CLAIMS,
+        ...DEMO_BUYER_CLAIMS,
+    ]);
     const [claimType, setClaimType] = useState<ClaimTypeFilter>("ALL");
     const [status, setStatus] = useState<ClaimStatusFilter>("ALL");
     const [market, setMarket] = useState<MarketFilter>("ALL");
     const [period, setPeriod] = useState<PeriodFilter>("7D");
     const [stage, setStage] = useState<ClaimStageFilter>("ALL");
+    const [requester, setRequester] = useState<RequesterFilter>("ALL");
     const [deadline, setDeadline] = useState<DeadlineFilter>("ALL");
     const [deadlineBefore, setDeadlineBefore] = useState<string | null>(null);
     const [search, setSearch] = useState("");
@@ -283,14 +331,34 @@ export function ClaimsPageClient() {
     const [filterReferenceTime] = useState(() => Date.now());
     const deferredSearch = useDeferredValue(search);
 
+    useEffect(() => {
+        const timer = window.setTimeout(() => {
+            try {
+                const stored = window.localStorage.getItem(DEMO_SELLER_CANCEL_STORAGE_KEY);
+                const parsed: unknown = stored ? JSON.parse(stored) : [];
+                if (!Array.isArray(parsed)) return;
+
+                const storedClaims = parsed as DemoClaimDetail[];
+                setDemoClaims((current) => {
+                    const storedOrderIds = new Set(storedClaims.map((claim) => claim.salesOrderId));
+                    return [...storedClaims, ...current.filter((claim) => !storedOrderIds.has(claim.salesOrderId))];
+                });
+            } catch {
+                // A damaged demo cache must not block the built-in claim scenarios.
+            }
+        }, 0);
+
+        return () => window.clearTimeout(timer);
+    }, []);
+
     const listQuery = useInfiniteQuery({
-        queryKey: ["claims", claimType, status, deadlineBefore, deferredSearch.trim()],
+        queryKey: ["claims", claimType, status, requester, deadlineBefore, deferredSearch.trim()],
         initialPageParam: null as string | null,
         queryFn: ({ pageParam }) => apiGet<ClaimCursorPage>(buildClaimsUrl({
             cursor: pageParam,
             claimType,
             status,
-            requester: "CUSTOMER",
+            requester,
             deadlineBefore,
             activeOnly: deadline !== "ALL",
             search: deferredSearch,
@@ -319,6 +387,7 @@ export function ClaimsPageClient() {
         return source.filter((claim) => {
             if (claimType !== "ALL" && claim.claimType !== claimType) return false;
             if (status !== "ALL" && claim.normalizedStatus !== status) return false;
+            if (requester !== "ALL" && claim.requesterType !== requester) return false;
             if (market !== "ALL" && claim.marketCode !== market) return false;
             if (stage !== "ALL" && claimStage(claim.normalizedStatus) !== stage) return false;
             if (cutoff && new Date(claim.requestedAt) < cutoff) return false;
@@ -328,7 +397,7 @@ export function ClaimsPageClient() {
             return [claim.externalOrderNumber, claim.externalClaimId, claim.storeName, (claim as Partial<ClaimDetail>).lines?.[0]?.productName]
                 .some((value) => value?.toLowerCase().includes(term));
         });
-    }, [claimType, deadline, deferredSearch, demoClaims, demoMode, filterReferenceTime, listQuery.data, market, period, stage, status]);
+    }, [claimType, deadline, deferredSearch, demoClaims, demoMode, filterReferenceTime, listQuery.data, market, period, requester, stage, status]);
 
     const selectedDemoClaim = demoMode
         ? demoClaims.find((claim) => claim.id === selectedClaimId) ?? null
@@ -380,38 +449,60 @@ export function ClaimsPageClient() {
         toast.success(`${action.label}을 로컬 데모에 반영했습니다. 마켓에는 전송되지 않았습니다.`);
     }
 
+    function runDemoSourcingRefund(): void {
+        if (!selectedDemoClaim || selectedDemoClaim.claimType === "EXCHANGE") return;
+        const now = new Date().toISOString();
+        setDemoClaims((current) => current.map((claim) => claim.id !== selectedDemoClaim.id ? claim : {
+            ...claim,
+            purchaseCompensationStatus: "PENDING",
+            purchaseCompensationReference: claim.purchaseCompensationReference ?? `SL-REFUND-${claim.externalClaimId}`,
+            purchaseCompensationNextActionAt: now,
+            sourceUpdatedAt: now,
+            events: [{
+                id: `demo-sourcing-refund-${claim.id}`,
+                externalEventId: null,
+                eventType: "SOURCING_REFUND_REQUESTED",
+                eventSource: "INTERNAL_DEMO",
+                fromStatus: claim.normalizedStatus,
+                toStatus: claim.normalizedStatus,
+                marketStatusRaw: null,
+                marketReasonCode: null,
+                sourceOccurredAt: now,
+                receivedAt: now,
+            }, ...claim.events],
+        }));
+        toast.success("소싱환불 후속조치를 접수했습니다. 마켓 클레임 상태는 변경하지 않았습니다.");
+    }
+
     const isPending = !demoMode && listQuery.isPending;
     const isError = !demoMode && listQuery.isError;
 
     return (
-        <div className="min-h-svh bg-white">
-            <div className="border-b border-slate-100 px-6 py-5 xl:px-8">
-                <h1 className="text-[24px] font-extrabold tracking-tight text-slate-950">취소/반품/교환</h1>
-            </div>
+        <div className="min-h-full p-4 sm:p-6 lg:p-8">
+            <PageHeader
+                title="취소·반품·교환"
+                eyebrow="COMMERCE LIFE · CLAIMS DESK"
+                description="구매자 클레임과 판매자 직접취소를 접수 주체와 진행 단계에 따라 한 작업함에서 관리합니다."
+            />
 
-            <div className="space-y-3 px-6 py-4 xl:px-8">
+            <Card className="mt-6 gap-0 overflow-hidden py-0">
+            <CardHeader className="space-y-3 border-b border-border p-4 sm:p-5">
                 <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
                     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                        <div className="inline-flex overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
+                        <ToggleGroup type="single" variant="outline" size="sm" value={period} onValueChange={(value) => value && setPeriod(value as PeriodFilter)}>
                             {PERIOD_OPTIONS.map((option) => (
-                                <Button
+                                <ToggleGroupItem
                                     key={option.value}
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className={cn(
-                                        "h-8 rounded-none border-r border-slate-200 px-3 text-xs font-bold text-slate-600 last:border-r-0 hover:bg-slate-50",
-                                        period === option.value && "bg-slate-100 text-slate-950 hover:bg-slate-100",
-                                    )}
-                                    onClick={() => setPeriod(option.value)}
+                                    value={option.value}
+                                    className="font-bold"
                                 >
                                     {option.label}
-                                </Button>
+                                </ToggleGroupItem>
                             ))}
-                        </div>
+                        </ToggleGroup>
                         <label className="relative min-w-[280px] flex-1 xl:max-w-[380px]">
-                            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-                            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="상품명, 주문번호, 클레임 ID 검색" className="h-8 border-slate-200 bg-white pl-9 text-sm shadow-sm" />
+                            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="상품명, 주문번호, 클레임 ID 검색" className="h-8 border-border bg-card pl-9 text-sm shadow-sm" />
                         </label>
                         <FilterSelect value={market} onValueChange={(value) => setMarket(value as MarketFilter)} compact>
                             <SelectItem value="ALL">마켓 전체</SelectItem>
@@ -428,24 +519,25 @@ export function ClaimsPageClient() {
                     </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-6 border-b border-slate-100 pt-2">
+                <ToggleGroup type="single" variant="outline" value={stage} onValueChange={(value) => value && setStage(value as ClaimStageFilter)} className="flex-wrap">
                     {(Object.keys(CLAIM_STAGE_LABELS) as ClaimStageFilter[]).map((value) => (
-                        <button
+                        <ToggleGroupItem
                             key={value}
-                            type="button"
-                            className={cn(
-                                "flex h-10 items-center gap-2 border-b-2 border-transparent text-sm font-bold text-slate-500 transition hover:text-slate-900",
-                                stage === value && "border-emerald-500 text-emerald-600",
-                            )}
-                            onClick={() => setStage(value)}
+                            value={value}
+                            className="font-bold"
                         >
                             <span>{CLAIM_STAGE_LABELS[value]}</span>
-                            <span className={cn("rounded-md bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500", stage === value && "bg-emerald-50 text-emerald-600")}>{stageCounts[value]}</span>
-                        </button>
+                            <Badge variant="outline">{stageCounts[value]}</Badge>
+                        </ToggleGroupItem>
                     ))}
-                </div>
+                </ToggleGroup>
 
                 <div className="flex flex-wrap items-center justify-end gap-2">
+                    <FilterSelect value={requester} onValueChange={(value) => setRequester(value as RequesterFilter)}>
+                        <SelectItem value="ALL">접수 주체 전체</SelectItem>
+                        <SelectItem value="CUSTOMER">구매자 신청</SelectItem>
+                        <SelectItem value="SELLER">판매자 직접취소</SelectItem>
+                    </FilterSelect>
                     <FilterSelect value={claimType} onValueChange={(value) => setClaimType(value as ClaimTypeFilter)}>
                         <SelectItem value="ALL">유형 전체</SelectItem>
                         {Object.entries(CLAIM_TYPE_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
@@ -464,16 +556,17 @@ export function ClaimsPageClient() {
                         <SelectItem value="DUE_24H">24시간 이내</SelectItem>
                     </FilterSelect>
                 </div>
-            </div>
+            </CardHeader>
 
-            <div className="px-6 pb-6 xl:px-8">
+            <CardContent className="p-4 sm:p-5">
                 {isPending ? <LoadingState /> : isError ? (
                     <ErrorState message={listQuery.error.message} onRetry={() => listQuery.refetch()} />
                 ) : claims.length === 0 ? (
-                    <div className="flex min-h-72 items-center justify-center rounded-md border border-slate-200 text-sm font-bold text-slate-500">조건에 맞는 구매자 클레임이 없습니다.</div>
+                    <Empty className="min-h-72 border"><EmptyHeader><EmptyDescription>조건에 맞는 취소·반품·교환 내역이 없습니다.</EmptyDescription></EmptyHeader></Empty>
                 ) : <ClaimsTable claims={claims} onOpen={setSelectedClaimId} />}
-                {!demoMode && listQuery.hasNextPage ? <div className="flex justify-center border-t border-slate-100 pt-4"><Button variant="outline" onClick={() => listQuery.fetchNextPage()} disabled={listQuery.isFetchingNextPage}>다음 50건 불러오기</Button></div> : null}
-            </div>
+                {!demoMode && listQuery.hasNextPage ? <div className="flex justify-center border-t border-border pt-4"><Button variant="outline" onClick={() => listQuery.fetchNextPage()} disabled={listQuery.isFetchingNextPage}>다음 50건 불러오기</Button></div> : null}
+            </CardContent>
+            </Card>
 
             <ClaimDetailDialog
                 claimId={selectedClaimId}
@@ -484,48 +577,49 @@ export function ClaimsPageClient() {
                 onOpenChange={(open) => { if (!open) setSelectedClaimId(null); }}
                 onRetry={() => detailQuery.refetch()}
                 onDemoAction={runDemoAction}
+                onDemoSourcingRefund={runDemoSourcingRefund}
             />
         </div>
     );
 }
 
 function FilterSelect({ children, compact = false, ...props }: React.ComponentProps<typeof Select> & { compact?: boolean }) {
-    return <Select {...props}><SelectTrigger className={cn("border-slate-200 bg-white shadow-sm", compact ? "h-8 w-[130px] text-xs" : "h-10 w-[150px]")}><SelectValue /></SelectTrigger><SelectContent>{children}</SelectContent></Select>;
+    return <Select {...props}><SelectTrigger className={cn("border-border bg-card shadow-sm", compact ? "h-8 w-[130px] text-xs" : "h-10 w-[150px]")}><SelectValue /></SelectTrigger><SelectContent>{children}</SelectContent></Select>;
 }
 
 function LoadingState() {
-    return <div className="flex min-h-72 items-center justify-center gap-2 text-sm font-bold text-slate-500"><LoaderCircle className="size-5 animate-spin" />클레임을 불러오는 중입니다.</div>;
+    return <Empty className="min-h-72"><EmptyHeader><EmptyMedia variant="icon"><LoaderCircle className="size-5 animate-spin" /></EmptyMedia><EmptyDescription>클레임을 불러오는 중입니다.</EmptyDescription></EmptyHeader></Empty>;
 }
 
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
     return (
-        <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center">
-            <AlertTriangle className="mb-3 size-8 text-red-500" /><p className="font-extrabold">클레임을 불러오지 못했습니다.</p>
-            <p className="mt-1 text-sm text-slate-500">{message}</p><Button className="mt-4" variant="outline" onClick={onRetry}>다시 시도</Button>
-        </div>
+        <Empty className="min-h-72">
+            <EmptyHeader><EmptyMedia variant="icon"><AlertTriangle /></EmptyMedia><EmptyTitle>클레임을 불러오지 못했습니다.</EmptyTitle><EmptyDescription>{message}</EmptyDescription></EmptyHeader>
+            <EmptyContent><Button variant="outline" onClick={onRetry}>다시 시도</Button></EmptyContent>
+        </Empty>
     );
 }
 
 function ClaimsTable({ claims, onOpen }: { claims: ClaimListItem[]; onOpen: (id: string) => void }) {
     return (
-        <div className="overflow-x-auto rounded-md border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-x-auto rounded-md border border-border bg-card shadow-sm">
         <Table className="min-w-[1080px] table-fixed">
-            <TableHeader><TableRow className="border-b border-slate-200 bg-slate-50 hover:bg-slate-50">
-                <TableHead className="h-9 w-[230px] px-2.5 text-xs font-semibold text-slate-600">마켓 / 주문</TableHead>
-                <TableHead className="h-9 w-[180px] px-2.5 text-xs font-semibold text-slate-600">유형 / 상태</TableHead>
-                <TableHead className="h-9 w-[170px] px-2.5 text-xs font-semibold text-slate-600">구매자 사유</TableHead>
-                <TableHead className="h-9 w-[250px] px-2.5 text-xs font-semibold text-slate-600">대상 상품</TableHead>
-                <TableHead className="h-9 w-[170px] px-2.5 text-xs font-semibold text-slate-600">처리기한</TableHead>
-                <TableHead className="h-9 w-[120px] px-2.5 text-right text-xs font-semibold text-slate-600">처리</TableHead>
+            <TableHeader><TableRow className="border-b border-border bg-muted hover:bg-muted">
+                <TableHead className="h-9 w-[230px] px-2.5 text-xs font-semibold text-muted-foreground">마켓 / 주문</TableHead>
+                <TableHead className="h-9 w-[180px] px-2.5 text-xs font-semibold text-muted-foreground">유형 / 상태</TableHead>
+                <TableHead className="h-9 w-[170px] px-2.5 text-xs font-semibold text-muted-foreground">접수 주체 / 사유</TableHead>
+                <TableHead className="h-9 w-[250px] px-2.5 text-xs font-semibold text-muted-foreground">대상 상품</TableHead>
+                <TableHead className="h-9 w-[170px] px-2.5 text-xs font-semibold text-muted-foreground">처리기한</TableHead>
+                <TableHead className="h-9 w-[120px] px-2.5 text-right text-xs font-semibold text-muted-foreground">처리</TableHead>
             </TableRow></TableHeader>
             <TableBody>{claims.map((claim) => (
-                <TableRow key={claim.id} tabIndex={0} role="button" className="group cursor-pointer border-b border-slate-100 transition-colors odd:bg-white even:bg-slate-50/35 hover:bg-sky-50/60" onClick={() => onOpen(claim.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(claim.id); }}>
-                    <TableCell className="px-2.5 py-2 align-top"><div className="text-sm font-bold text-slate-900">{MARKET_LABELS[claim.marketCode]} · {claim.storeName}</div><div className="mt-1 truncate font-mono text-xs text-slate-500">{claim.externalOrderNumber ?? claim.externalOrderId}</div></TableCell>
-                    <TableCell className="px-2.5 py-2 align-top"><div className="flex items-center gap-1.5"><Badge variant="outline" className={typeBadgeClass(claim.claimType)}>{CLAIM_TYPE_LABELS[claim.claimType]}</Badge><Badge variant="outline" className={statusBadgeClass(claim.normalizedStatus)}>{CLAIM_STATUS_LABELS[claim.normalizedStatus]}</Badge></div><div className="mt-1 truncate font-mono text-[11px] text-slate-400">{claim.externalClaimId}</div></TableCell>
-                    <TableCell className="px-2.5 py-2 align-top"><div className="text-sm font-semibold text-slate-800">구매자 신청</div><div className="mt-1 truncate text-xs text-slate-500">{claim.marketReasonMasked ?? claim.marketReasonCode ?? "사유 없음"}</div></TableCell>
-                    <TableCell className="px-2.5 py-2 align-top"><div className="truncate text-sm font-semibold text-slate-900">{(claim as ClaimDetail).lines?.[0]?.productName ?? `${claim.affectedLineCount}개 상품`}</div><div className="mt-1 text-xs text-slate-500">요청 수량 {claim.totalClaimQuantity}개</div></TableCell>
-                    <TableCell className="px-2.5 py-2 align-top"><div className={cn("flex items-center gap-1.5 text-xs font-bold", claim.deadlineOverdue ? "text-red-600" : "text-slate-700")}><Clock3 className="size-3.5" />{deadlineLabel(claim)}</div><div className="mt-1 text-xs text-slate-400">접수 {formatClaimDateTime(claim.requestedAt)}</div></TableCell>
-                    <TableCell className="px-2.5 py-2 text-right align-top"><Button size="sm" variant="outline" className="h-8 text-xs font-bold" onClick={(event) => { event.stopPropagation(); onOpen(claim.id); }}>{claimEntryActionLabel(claim.claimType)} <ArrowRight className="size-3.5" /></Button></TableCell>
+                <TableRow key={claim.id} className="group border-b border-border transition-colors odd:bg-card even:bg-muted/35 hover:bg-muted/60">
+                    <TableCell className="px-2.5 py-2 align-top"><div className="text-sm font-bold text-foreground">{MARKET_LABELS[claim.marketCode]} · {claim.storeName}</div><div className="mt-1 truncate font-mono text-xs text-muted-foreground">{claim.externalOrderNumber ?? claim.externalOrderId}</div></TableCell>
+                    <TableCell className="px-2.5 py-2 align-top"><div className="flex items-center gap-1.5"><Badge variant="outline" className={typeBadgeClass(claim.claimType)}>{CLAIM_TYPE_LABELS[claim.claimType]}</Badge><Badge variant="outline" className={statusBadgeClass(claim.normalizedStatus)}>{CLAIM_STATUS_LABELS[claim.normalizedStatus]}</Badge></div><div className="mt-1 truncate font-mono text-xs text-muted-foreground">{claim.externalClaimId}</div></TableCell>
+                    <TableCell className="px-2.5 py-2 align-top"><div className="text-sm font-semibold text-foreground">{REQUESTER_LABELS[claim.requesterType]}</div><div className="mt-1 truncate text-xs text-muted-foreground">{claim.marketReasonMasked ?? claim.marketReasonCode ?? "사유 없음"}</div></TableCell>
+                    <TableCell className="px-2.5 py-2 align-top"><div className="truncate text-sm font-semibold text-foreground">{(claim as ClaimDetail).lines?.[0]?.productName ?? `${claim.affectedLineCount}개 상품`}</div><div className="mt-1 text-xs text-muted-foreground">요청 수량 {claim.totalClaimQuantity}개</div></TableCell>
+                    <TableCell className="px-2.5 py-2 align-top"><div className={cn("flex items-center gap-1.5 text-xs font-bold", claim.deadlineOverdue ? "text-foreground" : "text-foreground")}><Clock3 className="size-3.5" />{deadlineLabel(claim)}</div><div className="mt-1 text-xs text-muted-foreground">접수 {formatClaimDateTime(claim.requestedAt)}</div></TableCell>
+                    <TableCell className="px-2.5 py-2 text-right align-top"><Button size="sm" variant="outline" className="h-8 text-xs font-bold" onClick={() => onOpen(claim.id)}>{claim.requesterType === "SELLER" ? "상세보기" : claimEntryActionLabel(claim.claimType)} <ArrowRight className="size-3.5" /></Button></TableCell>
                 </TableRow>
             ))}</TableBody>
         </Table>
@@ -533,7 +627,7 @@ function ClaimsTable({ claims, onOpen }: { claims: ClaimListItem[]; onOpen: (id:
     );
 }
 
-function ClaimDetailDialog({ claimId, claim, demoMode, loading, error, onOpenChange, onRetry, onDemoAction }: {
+function ClaimDetailDialog({ claimId, claim, demoMode, loading, error, onOpenChange, onRetry, onDemoAction, onDemoSourcingRefund }: {
     claimId: string | null;
     claim: ClaimDetail | null;
     demoMode: boolean;
@@ -542,6 +636,7 @@ function ClaimDetailDialog({ claimId, claim, demoMode, loading, error, onOpenCha
     onOpenChange: (open: boolean) => void;
     onRetry: () => void;
     onDemoAction: (action: DemoClaimAction, carrier?: string, trackingNumber?: string) => void;
+    onDemoSourcingRefund: () => void;
 }) {
     const [carrier, setCarrier] = useState("");
     const [trackingNumber, setTrackingNumber] = useState("");
@@ -560,39 +655,45 @@ function ClaimDetailDialog({ claimId, claim, demoMode, loading, error, onOpenCha
     return (
         <Dialog open={Boolean(claimId)} onOpenChange={onOpenChange}>
             <DialogContent className="max-h-[92svh] overflow-y-auto p-0 sm:max-w-5xl">
-                <DialogHeader className="sticky top-0 z-10 border-b border-slate-200 bg-white px-6 py-5 text-left">
-                    <DialogTitle className="text-xl font-black">{claim ? claimEntryActionLabel(claim.claimType) : "클레임 처리"}</DialogTitle>
+                <DialogHeader className="sticky top-0 z-10 border-b border-border bg-card px-6 py-5 text-left">
+                    <DialogTitle className="text-xl font-black">{claim ? (claim.requesterType === "SELLER" ? "판매자 직접취소 상세" : claimEntryActionLabel(claim.claimType)) : "클레임 처리"}</DialogTitle>
                     <DialogDescription>{demoMode ? "마켓 미전송 MVP 시뮬레이션" : "마켓에서 수집한 읽기 전용 정보"}</DialogDescription>
                 </DialogHeader>
                 {loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={onRetry} /> : claim ? (
                     <div className="space-y-6 p-6">
                         <div className="flex flex-wrap items-start justify-between gap-4">
-                            <div><div className="flex gap-2"><Badge variant="outline" className={typeBadgeClass(claim.claimType)}>{CLAIM_TYPE_LABELS[claim.claimType]}</Badge><Badge variant="outline" className={statusBadgeClass(claim.normalizedStatus)}>{CLAIM_STATUS_LABELS[claim.normalizedStatus]}</Badge>{claim.deadlineOverdue ? <Badge className="bg-red-600">기한 초과</Badge> : null}</div><h2 className="mt-3 text-lg font-black">{MARKET_LABELS[claim.marketCode]} · {claim.storeName}</h2><p className="mt-1 font-mono text-xs text-slate-500">주문 {claim.externalOrderNumber ?? claim.externalOrderId} / 클레임 {claim.externalClaimId}</p></div>
-                            <div className="rounded-md border bg-slate-50 px-4 py-3 text-right"><div className="text-[11px] font-bold text-slate-400">처리기한</div><div className={cn("mt-1 font-black", claim.deadlineOverdue && "text-red-600")}>{deadlineLabel(claim)}</div></div>
+                            <div><div className="flex gap-2"><Badge variant="outline" className={typeBadgeClass(claim.claimType)}>{CLAIM_TYPE_LABELS[claim.claimType]}</Badge><Badge variant="outline" className={statusBadgeClass(claim.normalizedStatus)}>{CLAIM_STATUS_LABELS[claim.normalizedStatus]}</Badge>{claim.deadlineOverdue ? <Badge className="bg-primary">기한 초과</Badge> : null}</div><h2 className="mt-3 text-lg font-black">{MARKET_LABELS[claim.marketCode]} · {claim.storeName}</h2><p className="mt-1 font-mono text-xs text-muted-foreground">주문 {claim.externalOrderNumber ?? claim.externalOrderId} / 클레임 {claim.externalClaimId}</p></div>
+                            <div className="rounded-md border bg-muted px-4 py-3 text-right"><div className="text-xs font-bold text-muted-foreground">처리기한</div><div className={cn("mt-1 font-black", claim.deadlineOverdue && "text-foreground")}>{deadlineLabel(claim)}</div></div>
                         </div>
 
                         {workflow ? (
-                            <section className="rounded-lg border border-violet-200 bg-violet-50 p-4">
-                                <div className="flex items-start gap-3"><CheckCircle2 className="mt-0.5 size-5 text-violet-700" /><div><div className="text-xs font-bold text-violet-600">현재 단계</div><div className="font-black text-violet-950">{workflow.stage}</div><p className="mt-2 text-sm text-violet-900"><strong>다음 작업:</strong> {workflow.nextWork}</p>{workflow.risk ? <p className="mt-2 text-xs font-bold text-red-700">주의: {workflow.risk}</p> : null}</div></div>
+                            <section className="rounded-lg border border-border bg-muted p-4">
+                                <div className="flex items-start gap-3"><CheckCircle2 className="mt-0.5 size-5 text-foreground" /><div><div className="text-xs font-bold text-foreground">현재 단계</div><div className="font-black text-foreground">{workflow.stage}</div><p className="mt-2 text-sm text-foreground"><strong>다음 작업:</strong> {workflow.nextWork}</p>{workflow.risk ? <p className="mt-2 text-xs font-bold text-foreground">주의: {workflow.risk}</p> : null}</div></div>
                             </section>
                         ) : null}
 
-                        <section><SectionTitle title="신청 정보" description="구매자가 마켓에서 신청한 원문 기준" /><div className="mt-3 grid overflow-hidden rounded-md border sm:grid-cols-2 lg:grid-cols-4"><SnapshotCell label="신청자" value="구매자" /><SnapshotCell label="신청 사유" value={claim.marketReasonMasked ?? claim.marketReasonCode ?? "-"} /><SnapshotCell label="주문 상태" value={claim.orderStatusAtRequest} /><SnapshotCell label="배송 상태" value={claim.fulfillmentStatusAtRequest ?? "-"} /></div></section>
+                        <section><SectionTitle title="접수 정보" description={claim.requesterType === "SELLER" ? "주문수집 화면에서 판매자가 직접 취소한 기록" : "구매자가 마켓에서 신청한 원문 기준"} /><div className="mt-3 grid overflow-hidden rounded-md border sm:grid-cols-2 lg:grid-cols-4"><SnapshotCell label="접수 주체" value={REQUESTER_LABELS[claim.requesterType]} /><SnapshotCell label="접수 사유" value={claim.marketReasonMasked ?? claim.marketReasonCode ?? "-"} /><SnapshotCell label="주문 상태" value={claim.orderStatusAtRequest} /><SnapshotCell label="배송 상태" value={claim.fulfillmentStatusAtRequest ?? "-"} /></div></section>
 
                         {workflow && (workflow.pickup || workflow.replacementShipment) ? (
                             <section><SectionTitle title="회수·재배송" description="기존 배송과 별도로 관리" /><div className="mt-3 grid gap-3 md:grid-cols-2">{workflow.pickup ? <InfoCard icon={<Truck className="size-4" />} label="회수 배송" value={workflow.pickup} /> : null}{workflow.replacementShipment ? <InfoCard icon={<Truck className="size-4" />} label="교환 재배송" value={workflow.replacementShipment} /> : null}</div></section>
                         ) : null}
 
-                        <section><SectionTitle title="대상 상품" description={`상품 ${claim.affectedLineCount}개 · 요청 수량 ${claim.totalClaimQuantity}개`} /><div className="mt-3 overflow-hidden rounded-md border"><Table><TableHeader className="bg-slate-50"><TableRow><TableHead className="pl-4 font-extrabold">상품 / 옵션</TableHead><TableHead className="font-extrabold">요청 수량</TableHead><TableHead className="font-extrabold">상태</TableHead></TableRow></TableHeader><TableBody>{claim.lines.map((line) => <TableRow key={line.id}><TableCell className="py-3 pl-4"><div className="font-bold">{line.productName}</div><div className="mt-1 text-xs text-slate-500">{line.optionName ?? "옵션 없음"}</div></TableCell><TableCell className="font-black">{line.requestedQuantity} / {line.orderedQuantity}</TableCell><TableCell><Badge variant="outline" className={statusBadgeClass(line.normalizedStatus)}>{CLAIM_STATUS_LABELS[line.normalizedStatus]}</Badge></TableCell></TableRow>)}</TableBody></Table></div></section>
+                        <section><SectionTitle title="대상 상품" description={`상품 ${claim.affectedLineCount}개 · 요청 수량 ${claim.totalClaimQuantity}개`} /><div className="mt-3 overflow-hidden rounded-md border"><Table><TableHeader className="bg-muted"><TableRow><TableHead className="pl-4 font-extrabold">상품 / 옵션</TableHead><TableHead className="font-extrabold">요청 수량</TableHead><TableHead className="font-extrabold">상태</TableHead></TableRow></TableHeader><TableBody>{claim.lines.map((line) => <TableRow key={line.id}><TableCell className="py-3 pl-4"><div className="font-bold">{line.productName}</div><div className="mt-1 text-xs text-muted-foreground">{line.optionName ?? "옵션 없음"}</div></TableCell><TableCell className="font-black">{line.requestedQuantity} / {line.orderedQuantity}</TableCell><TableCell><Badge variant="outline" className={statusBadgeClass(line.normalizedStatus)}>{CLAIM_STATUS_LABELS[line.normalizedStatus]}</Badge></TableCell></TableRow>)}</TableBody></Table></div></section>
 
                         <section>
                             <SectionTitle title="처리 작업" description={demoMode ? "로컬 데모 · 마켓 미전송" : "실계정 UAT 전 실행 차단"} />
-                            <div className={cn("mt-3 rounded-md border p-4", demoMode ? "border-blue-200 bg-blue-50" : "border-amber-200 bg-amber-50")}>
-                                {actions.length ? <div className="space-y-3">{actions.map((action) => <ActionRow key={`${action.key}-${action.label}`} action={action} carrier={carrier} trackingNumber={trackingNumber} onCarrierChange={setCarrier} onTrackingChange={setTrackingNumber} onRun={(nextAction) => runAction(nextAction)} />)}</div> : <p className="text-sm font-bold text-slate-600">{demoMode ? "현재 상태에서 API로 처리할 작업이 없습니다." : "현재 상태에서 공식 API로 실행할 작업이 없습니다."}</p>}
+                            <div className={cn("mt-3 rounded-md border p-4", demoMode ? "border-border bg-muted" : "border-border bg-muted")}>
+                                {actions.length ? <div className="space-y-3">{actions.map((action) => <ActionRow key={`${action.key}-${action.label}`} action={action} carrier={carrier} trackingNumber={trackingNumber} onCarrierChange={setCarrier} onTrackingChange={setTrackingNumber} onRun={(nextAction) => runAction(nextAction)} />)}</div> : <p className="text-sm font-bold text-muted-foreground">{demoMode ? "현재 상태에서 API로 처리할 작업이 없습니다." : "현재 상태에서 공식 API로 실행할 작업이 없습니다."}</p>}
                             </div>
                         </section>
 
-                        <section><SectionTitle title="상태 이력" description={`${claim.events.length}건`} /><div className="mt-3 divide-y rounded-md border">{claim.events.map((event) => <div key={event.id} className="grid gap-2 px-4 py-3 sm:grid-cols-[150px_1fr_auto]"><div className="font-mono text-xs text-slate-500">{formatClaimDateTime(event.sourceOccurredAt ?? event.receivedAt)}</div><div><div className="text-sm font-extrabold">{event.eventType}</div><div className="text-xs text-slate-500">{event.fromStatus ? CLAIM_STATUS_LABELS[event.fromStatus] : "-"} → {event.toStatus ? CLAIM_STATUS_LABELS[event.toStatus] : "-"}</div></div><Badge variant="outline" className="justify-self-start sm:justify-self-end">{event.eventSource}</Badge></div>)}</div></section>
+                        <SourcingCompensationSection
+                            claim={claim}
+                            demoMode={demoMode}
+                            onRequest={onDemoSourcingRefund}
+                        />
+
+                        <section><SectionTitle title="상태 이력" description={`${claim.events.length}건`} /><div className="mt-3 divide-y rounded-md border">{claim.events.map((event) => <div key={event.id} className="grid gap-2 px-4 py-3 sm:grid-cols-[150px_1fr_auto]"><div className="font-mono text-xs text-muted-foreground">{formatClaimDateTime(event.sourceOccurredAt ?? event.receivedAt)}</div><div><div className="text-sm font-extrabold">{event.eventType}</div><div className="text-xs text-muted-foreground">{event.fromStatus ? CLAIM_STATUS_LABELS[event.fromStatus] : "-"} → {event.toStatus ? CLAIM_STATUS_LABELS[event.toStatus] : "-"}</div></div><Badge variant="outline" className="justify-self-start sm:justify-self-end">{event.eventSource}</Badge></div>)}</div></section>
                     </div>
                 ) : null}
             </DialogContent>
@@ -600,21 +701,54 @@ function ClaimDetailDialog({ claimId, claim, demoMode, loading, error, onOpenCha
     );
 }
 
+function SourcingCompensationSection({ claim, demoMode, onRequest }: { claim: ClaimDetail; demoMode: boolean; onRequest: () => void }) {
+    const status = claim.purchaseCompensationStatus;
+    const canRequest = claim.claimType !== "EXCHANGE" && ["NEEDS_ATTENTION", "FAILED", "UNKNOWN"].includes(status);
+
+    return (
+        <section>
+            <SectionTitle title="소싱 구매 후속조치" description="마켓 클레임과 분리해 추적" />
+            <div className="mt-3 flex flex-col gap-4 rounded-md border bg-muted p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline" className="bg-card">{PURCHASE_COMPENSATION_LABELS[status]}</Badge>
+                        <span className="font-mono text-xs text-muted-foreground">{claim.purchaseCompensationReference ?? "연결 참조 없음"}</span>
+                    </div>
+                    <p className="mt-2 text-sm leading-5 text-muted-foreground">{getSourcingCompensationGuidance(status)}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">신청 당시 소싱 상태: {claim.sourcingStatusAtRequest}</p>
+                </div>
+                {canRequest ? (
+                    <Button className="shrink-0" onClick={onRequest} disabled={!demoMode}>
+                        {demoMode ? "소싱환불 요청" : "연동 준비 중"}
+                    </Button>
+                ) : null}
+            </div>
+        </section>
+    );
+}
+
 function ActionRow({ action, carrier, trackingNumber, onCarrierChange, onTrackingChange, onRun }: { action: DemoClaimAction; carrier: string; trackingNumber: string; onCarrierChange: (value: string) => void; onTrackingChange: (value: string) => void; onRun: (action: DemoClaimAction, carrier?: string, trackingNumber?: string) => void }) {
     const disabled = action.requiresTracking && (!carrier.trim() || !trackingNumber.trim());
     return (
-        <div className="rounded-md border border-white/80 bg-white p-3"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><div className="font-extrabold text-slate-900">{action.label}</div><div className="mt-1 text-xs text-slate-500">{action.description}</div></div><Button variant={action.tone === "primary" ? "default" : "outline"} onClick={() => onRun(action, carrier, trackingNumber)} disabled={disabled}>{action.label}</Button></div>{action.requiresTracking ? <div className="mt-3 grid gap-2 md:grid-cols-2"><Input value={carrier} onChange={(event) => onCarrierChange(event.target.value)} placeholder="택배사" /><Input value={trackingNumber} onChange={(event) => onTrackingChange(event.target.value)} placeholder="재배송 송장번호" /></div> : null}</div>
+        <Item variant="outline" className="items-start">
+            <ItemContent>
+                <ItemTitle>{action.label}</ItemTitle>
+                <ItemDescription>{action.description}</ItemDescription>
+                {action.requiresTracking ? <div className="mt-2 grid gap-2 md:grid-cols-2"><Input value={carrier} onChange={(event) => onCarrierChange(event.target.value)} placeholder="택배사" /><Input value={trackingNumber} onChange={(event) => onTrackingChange(event.target.value)} placeholder="재배송 송장번호" /></div> : null}
+            </ItemContent>
+            <ItemActions><Button variant={action.tone === "primary" ? "default" : "outline"} onClick={() => onRun(action, carrier, trackingNumber)} disabled={disabled}>{action.label}</Button></ItemActions>
+        </Item>
     );
 }
 
 function SectionTitle({ title, description }: { title: string; description: string }) {
-    return <div className="flex flex-wrap items-end justify-between gap-2 border-b pb-2"><h3 className="font-black">{title}</h3><p className="text-xs text-slate-500">{description}</p></div>;
+    return <div className="flex flex-wrap items-end justify-between gap-2 border-b pb-2"><h3 className="font-black">{title}</h3><p className="text-xs text-muted-foreground">{description}</p></div>;
 }
 
 function SnapshotCell({ label, value }: { label: string; value: string }) {
-    return <div className="border-b px-4 py-3 sm:border-b-0 sm:border-r sm:last:border-r-0"><div className="text-[11px] font-bold text-slate-400">{label}</div><div className="mt-1 break-all text-xs font-bold text-slate-800">{value}</div></div>;
+    return <Item className="rounded-none border-b px-4 py-3 sm:border-b-0 sm:border-r sm:last:border-r-0"><ItemContent><ItemDescription>{label}</ItemDescription><ItemTitle className="break-all">{value}</ItemTitle></ItemContent></Item>;
 }
 
 function InfoCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-    return <div className="rounded-md border bg-slate-50 p-3"><div className="flex items-center gap-2 text-xs font-bold text-slate-500">{icon}{label}</div><div className="mt-2 text-sm font-extrabold text-slate-900">{value}</div></div>;
+    return <Item variant="muted"><ItemMedia variant="icon">{icon}</ItemMedia><ItemContent><ItemDescription>{label}</ItemDescription><ItemTitle>{value}</ItemTitle></ItemContent></Item>;
 }

@@ -4,11 +4,11 @@ import {
     ShoppingCart,
     TrendingUp,
     Wallet,
-    Coins
 } from "lucide-react";
 import { MetricCard } from "./metric-card";
 import { useDashboardMetrics } from "@/hooks/use-dashboard-data";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 export function KeyMetrics() {
     const { data: metrics, isLoading } = useDashboardMetrics();
@@ -20,7 +20,7 @@ export function KeyMetrics() {
     if (!metrics) return null;
 
     return (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             <MetricCard
                 label="매출"
                 value={metrics.sales}
@@ -44,7 +44,7 @@ export function KeyMetrics() {
                 value={metrics.expectedMargin}
                 icon={<TrendingUp className="h-4 w-4" />}
                 tooltip="정산예정금에서 비용을 뺀 수익성 지표입니다."
-                valueClassName="text-blue-600 dark:text-blue-400"
+                valueClassName="text-foreground dark:text-foreground"
             />
             <MetricCard
                 label="주문건수"
@@ -59,17 +59,17 @@ export function KeyMetrics() {
 
 function MetricsSkeleton() {
     return (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="rounded-xl border bg-card text-card-foreground shadow-sm p-6">
-                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            {Array.from({ length: 5 }).map((_, i) => (
+                <Card key={i}>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <Skeleton className="h-4 w-20" />
                         <Skeleton className="h-4 w-4" />
-                    </div>
-                    <div className="mt-2">
+                    </CardHeader>
+                    <CardContent>
                         <Skeleton className="h-8 w-32" />
-                    </div>
-                </div>
+                    </CardContent>
+                </Card>
             ))}
         </div>
     );

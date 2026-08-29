@@ -1,5 +1,5 @@
 import { useAnnouncements } from "@/hooks/use-dashboard-data";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,8 +12,8 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { formatDistanceToNow } from "date-fns";
-import { ko } from "date-fns/locale";
+import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
+import { Item, ItemContent, ItemDescription, ItemGroup, ItemTitle } from "@/components/ui/item";
 
 export function AnnouncementsWidget() {
     const { data: announcements, isLoading } = useAnnouncements();
@@ -42,48 +42,50 @@ export function AnnouncementsWidget() {
                                 플랫폼의 중요 업데이트 및 이슈 사항을 확인하세요.
                             </DialogDescription>
                         </DialogHeader>
-                        <div className="max-h-[60vh] overflow-y-auto pr-2 mt-4 space-y-4">
+                        <ScrollArea className="mt-4 max-h-[60vh] pr-2">
+                            <ItemGroup className="gap-4">
                             {announcements?.map((item) => (
-                                <div key={item.id} className="border rounded-lg p-4 space-y-2">
+                                <Item key={item.id} variant="outline" className="items-stretch">
+                                    <ItemContent>
                                     <div className="flex items-center gap-2">
                                         <Badge variant={item.badge === 'important' ? "destructive" : "secondary"}>
                                             {item.badge === 'important' ? '중요' : '일반'}
                                         </Badge>
                                         <span className="text-xs text-muted-foreground">{item.date}</span>
                                     </div>
-                                    <h4 className="font-medium text-sm sm:text-base">{item.title}</h4>
-                                    <p className="text-sm text-muted-foreground bg-muted/50 p-3 rounded-md">
-                                        {item.content}
-                                    </p>
-                                </div>
+                                    <ItemTitle>{item.title}</ItemTitle>
+                                    <ItemDescription>{item.content}</ItemDescription>
+                                    </ItemContent>
+                                </Item>
                             ))}
-                        </div>
+                            </ItemGroup>
+                        </ScrollArea>
                     </DialogContent>
                 </Dialog>
             </CardHeader>
             <CardContent className="flex-1">
-                <div className="space-y-4">
+                <ItemGroup>
                     {recentAnnouncements.map((item) => (
-                        <div key={item.id} className="flex flex-col space-y-1">
+                        <Item key={item.id} size="sm">
+                            <ItemContent>
                             <div className="flex items-center gap-2">
                                 <Badge
                                     variant={item.badge === 'important' ? "destructive" : "secondary"}
-                                    className="text-[10px] px-1.5 py-0 h-5"
+                                    className="text-xs px-1.5 py-0 h-5"
                                 >
                                     {item.badge === 'important' ? '중요' : '일반'}
                                 </Badge>
                                 <h4 className="text-sm font-medium line-clamp-1">{item.title}</h4>
                             </div>
-                            <p className="text-xs text-muted-foreground pl-1">{item.date}</p>
-                        </div>
+                            <ItemDescription>{item.date}</ItemDescription>
+                            </ItemContent>
+                        </Item>
                     ))}
 
                     {recentAnnouncements.length === 0 && (
-                        <div className="flex flex-col items-center justify-center h-full py-8 text-center text-muted-foreground">
-                            <span className="text-sm">등록된 공지사항이 없습니다.</span>
-                        </div>
+                        <Empty><EmptyHeader><EmptyDescription>등록된 공지사항이 없습니다.</EmptyDescription></EmptyHeader></Empty>
                     )}
-                </div>
+                </ItemGroup>
             </CardContent>
         </Card>
     );

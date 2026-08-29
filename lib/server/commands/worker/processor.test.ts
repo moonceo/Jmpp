@@ -81,6 +81,7 @@ function context(options: {
     previousResult?: Record<string, unknown> | null;
     quantity?: number;
     capability?: Record<string, unknown>;
+    attributes?: Record<string, unknown>;
 } = {}): NaverCommandExecutionContext {
     const commandLease = {
         ...lease(options.type, options.purpose),
@@ -122,7 +123,7 @@ function context(options: {
             domesticTrackingNumber: options.trackingNumber ?? null,
             confirmedAt: action === "ORDER_CONFIRM" ? null : NOW.toISOString(),
             marketInvoiceSubmittedAt: null,
-            attributes: {},
+            attributes: options.attributes ?? {},
         },
     };
 }
@@ -415,6 +416,7 @@ describe("processOneNaverOutboundCommand", () => {
             sourcingStatus: "INVOICE_RECEIVED",
             carrierCode: "CJ",
             trackingNumber: "1234567890",
+            attributes: { sourcingProgressStage: "DOMESTIC_SHIPPING" },
         });
         const naver = clientWith({ detail: detail({ placeOrderStatus: "OK" }) });
         const setup = dependencies({ executionContext, client: naver.client });
@@ -428,6 +430,46 @@ describe("processOneNaverOutboundCommand", () => {
         }]);
         expect(setup.finalize).toHaveBeenCalledWith(expect.objectContaining({
             resolution: expect.objectContaining({ status: "SUCCEEDED" }),
+        }));
+    });
+
+    it("does not resend unified shipping when the provider is already dispatched", async () => {
+        const executionContext = context({
+            type: "SHIPPING_PROCESS",
+            payload: {
+                requestedMethod: "DIRECT_DELIVERY",
+                dispatchAt: NOW.toISOString(),
+            },
+            sourcingStatus: "INVOICE_RECEIVED",
+            carrierCode: "CJ",
+            trackingNumber: "1234567890",
+        });
+        executionContext.accountCapabilities = {
+            DIRECT_DELIVERY: { mode: "API" },
+        };
+        const naver = clientWith({
+            detail: detail({
+                placeOrderStatus: "OK",
+                productOrderStatus: "DELIVERING",
+                deliveryMethod: "DELIVERY",
+                deliveryCompanyCode: "CJ",
+                trackingNumber: "1234567890",
+            }),
+        });
+        const setup = dependencies({ executionContext, client: naver.client });
+
+        await processOneNaverOutboundCommand(setup.result);
+
+        expect(naver.dispatchProductOrders).not.toHaveBeenCalled();
+        expect(setup.finalize).toHaveBeenCalledWith(expect.objectContaining({
+            resolution: expect.objectContaining({
+                status: "SUCCEEDED",
+                reconciled: true,
+                responseSummary: expect.objectContaining({
+                    source: "PRE_READ_RECONCILIATION",
+                    deliveryMethod: "DELIVERY",
+                }),
+            }),
         }));
     });
 

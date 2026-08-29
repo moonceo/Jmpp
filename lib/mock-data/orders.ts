@@ -2,7 +2,8 @@
 import { Order } from "@/types/order";
 
 // Keep relative demo dates inside the default seven-day collection window.
-const now = new Date("2026-07-15T10:00:00");
+const DEMO_REFERENCE_TIME = new Date("2026-07-15T10:00:00");
+const now = DEMO_REFERENCE_TIME;
 
 const rawMockOrders: Order[] = [
     {
@@ -206,6 +207,7 @@ const rawMockOrders: Order[] = [
             unitPrice: 129000,
         },
         paymentPrice: 129000,
+        paymentShippingFee: 3000,
         platformFee: 4500,
         expectedSettlement: 124500,
         expectedCost: 78500,
@@ -260,7 +262,7 @@ const rawMockOrders: Order[] = [
         expectedSettlement: 34000,
         expectedCost: 21000,
         sourcingLifeSyncStatus: "INVOICE_RECEIVED",
-        sourcingProgressStage: "CHINA_SHIPPING",
+        sourcingProgressStage: "DOMESTIC_SHIPPING",
         sourcingLifeOrderId: "SL-20260606-0006",
         domesticInvoice: {
             carrier: "CJ대한통운",
@@ -268,7 +270,7 @@ const rawMockOrders: Order[] = [
             receivedAt: format(subDays(now, 2), "yyyy-MM-dd HH:mm"),
             uploadedToMarketAt: format(subDays(now, 2), "yyyy-MM-dd HH:mm"),
             source: "sourcing_life",
-            uploadMode: "manual",
+            uploadMode: "auto",
         },
     },
     {
@@ -315,6 +317,51 @@ const rawMockOrders: Order[] = [
             source: "sourcing_life",
             uploadMode: "auto",
         },
+        deliveryHistory: [
+            {
+                id: "ORD-20260604-0007-DELIVERY-01",
+                flow: "OUTBOUND",
+                label: "중국 판매자 출고",
+                description: "중국 판매자가 상품을 출고했습니다.",
+                occurredAt: format(subDays(now, 5), "yyyy-MM-dd HH:mm"),
+                location: "중국 산둥성 웨이하이",
+            },
+            {
+                id: "ORD-20260604-0007-DELIVERY-02",
+                flow: "OUTBOUND",
+                label: "중국 배송완료",
+                description: "배송대행지 입고와 출고 확인이 완료되었습니다.",
+                occurredAt: format(subDays(now, 4), "yyyy-MM-dd HH:mm"),
+                location: "소싱라이프 위해 A센터",
+            },
+            {
+                id: "ORD-20260604-0007-DELIVERY-03",
+                flow: "OUTBOUND",
+                label: "통관완료",
+                description: "수입 통관을 마치고 국내 택배사로 인계되었습니다.",
+                occurredAt: format(subDays(now, 3), "yyyy-MM-dd HH:mm"),
+                location: "인천세관",
+            },
+            {
+                id: "ORD-20260604-0007-DELIVERY-04",
+                flow: "OUTBOUND",
+                label: "국내 배송시작",
+                description: "국내 택배 배송이 시작되었습니다.",
+                occurredAt: format(subDays(now, 2), "yyyy-MM-dd HH:mm"),
+                carrier: "롯데택배",
+                trackingNumber: "408912345678",
+            },
+            {
+                id: "ORD-20260604-0007-DELIVERY-05",
+                flow: "OUTBOUND",
+                label: "배송완료",
+                description: "수령인에게 상품 배송을 완료했습니다.",
+                occurredAt: format(subDays(now, 1), "yyyy-MM-dd HH:mm"),
+                location: "서울특별시 용산구",
+                carrier: "롯데택배",
+                trackingNumber: "408912345678",
+            },
+        ],
     },
     {
         id: "ORD-20260603-0008",
@@ -388,6 +435,7 @@ const rawMockOrders: Order[] = [
         expectedSettlement: 35800,
         expectedCost: 21400,
         sourcingLifeSyncStatus: "INVOICE_RECEIVED",
+        sourcingProgressStage: "DELIVERED",
         sourcingLifeOrderId: "SL-20260603-0011",
         sourcingLifeSyncedAt: format(subDays(now, 7), "yyyy-MM-dd HH:mm"),
         sourcingLifeActualPayment: {
@@ -403,11 +451,62 @@ const rawMockOrders: Order[] = [
             source: "sourcing_life",
             uploadMode: "auto",
         },
+        deliveryHistory: [
+            {
+                id: "ORD-20260603-0011-DELIVERY-01",
+                flow: "OUTBOUND",
+                label: "중국 판매자 출고",
+                occurredAt: format(subDays(now, 7), "yyyy-MM-dd HH:mm"),
+                location: "중국 저장성 이우",
+            },
+            {
+                id: "ORD-20260603-0011-DELIVERY-02",
+                flow: "OUTBOUND",
+                label: "통관완료",
+                occurredAt: format(subDays(now, 6), "yyyy-MM-dd HH:mm"),
+                location: "인천세관",
+            },
+            {
+                id: "ORD-20260603-0011-DELIVERY-03",
+                flow: "OUTBOUND",
+                label: "배송완료",
+                occurredAt: format(subHours(subDays(now, 5), 6), "yyyy-MM-dd HH:mm"),
+                carrier: "CJ대한통운",
+                trackingNumber: "512606030011",
+            },
+            {
+                id: "ORD-20260603-0011-RETURN-01",
+                flow: "RETURN",
+                label: "반품 접수",
+                description: "상품 파손 사유로 반품이 접수되었습니다.",
+                occurredAt: format(subDays(now, 5), "yyyy-MM-dd HH:mm"),
+            },
+            {
+                id: "ORD-20260603-0011-RETURN-02",
+                flow: "RETURN",
+                label: "반품 회수",
+                description: "구매자 배송지에서 반품 상품을 회수했습니다.",
+                occurredAt: format(subDays(now, 3), "yyyy-MM-dd HH:mm"),
+                carrier: "CJ대한통운",
+                trackingNumber: "RET512606030011",
+            },
+            {
+                id: "ORD-20260603-0011-RETURN-03",
+                flow: "RETURN",
+                label: "반품완료",
+                description: "반품 상품 입고와 검수가 완료되었습니다.",
+                occurredAt: format(subDays(now, 1), "yyyy-MM-dd HH:mm"),
+                location: "반품 처리센터",
+                carrier: "CJ대한통운",
+                trackingNumber: "RET512606030011",
+            },
+        ],
         claimReason: "상품 파손으로 반품 요청",
         failureReason: "반품 요청으로 처리 보류",
         claimType: "RETURN",
-        claimStatus: "반품 요청",
+        claimStatus: "반품완료",
         claimRequestedAt: format(subDays(now, 5), "yyyy-MM-dd HH:mm"),
+        claimProcessedAt: format(subDays(now, 1), "yyyy-MM-dd HH:mm"),
         previousStatus: "DELIVERED",
     },
     {
@@ -443,6 +542,7 @@ const rawMockOrders: Order[] = [
         expectedSettlement: 30000,
         expectedCost: 17600,
         sourcingLifeSyncStatus: "INVOICE_RECEIVED",
+        sourcingProgressStage: "DOMESTIC_SHIPPING",
         sourcingLifeOrderId: "SL-20260602-0012",
         sourcingLifeSyncedAt: format(subDays(now, 8), "yyyy-MM-dd HH:mm"),
         sourcingLifeActualPayment: {
@@ -663,6 +763,7 @@ const rawMockOrders: Order[] = [
         expectedSettlement: 43400,
         expectedCost: 25900,
         sourcingLifeSyncStatus: "INVOICE_RECEIVED",
+        sourcingProgressStage: "DOMESTIC_SHIPPING",
         sourcingLifeOrderId: "SL-20260610-0017",
         sourcingLifeSyncedAt: format(subHours(now, 2), "yyyy-MM-dd HH:mm"),
         sourcingLifeMatch: {
@@ -868,6 +969,15 @@ const rawMockOrders: Order[] = [
         sourcingLifeActualPayment: {
             amount: 15100,
             currency: "KRW",
+            paidAt: format(subHours(now, 6), "yyyy-MM-dd HH:mm"),
+        },
+        taoWorldPurchase: {
+            distributorId: "2100000927014",
+            purchaseOrderId: "2608284132117736021",
+            purchaseOrderLineId: "200002671021",
+            payOrderId: "2597049687002736021",
+            currency: "CNY",
+            paidAmountCny: 66.23,
             paidAt: format(subHours(now, 6), "yyyy-MM-dd HH:mm"),
         },
     },
@@ -1226,12 +1336,14 @@ const rawMockOrders: Order[] = [
     },
     {
         id: "ORD-20260617-0030",
-        marketOrderId: "NAVER-WAIT-0030",
+        marketOrderId: "NAVER-INVOICE-SENT-WAIT-0030",
         marketType: "naver",
         storeName: "naver_living_01",
         orderDate: format(subHours(now, 6), "yyyy-MM-dd HH:mm"),
         marketPaidAt: format(subHours(now, 6), "yyyy-MM-dd HH:mm"),
         status: "READY_TO_SHIP",
+        marketOrderStatus: "DELIVERING",
+        marketDeliveryMethod: "DELIVERY",
         buyerName: "문지호",
         buyerId: "jiho_moon",
         buyerPhone: "010-3030-2121",
@@ -1257,14 +1369,16 @@ const rawMockOrders: Order[] = [
         expectedSettlement: 26980,
         expectedCost: 15400,
         sourcingLifeSyncStatus: "INVOICE_RECEIVED",
-        sourcingProgressStage: "SOURCED",
+        sourcingProgressStage: "DOMESTIC_SHIPPING",
         sourcingLifeOrderId: "SL-20260617-0030",
         sourcingLifeSyncedAt: format(subHours(now, 2), "yyyy-MM-dd HH:mm"),
         domesticInvoice: {
             carrier: "롯데택배",
             trackingNumber: "512606170030",
             receivedAt: format(subHours(now, 2), "yyyy-MM-dd HH:mm"),
+            uploadedToMarketAt: format(subHours(now, 1), "yyyy-MM-dd HH:mm"),
             source: "sourcing_life",
+            uploadMode: "manual",
         },
         sourcingLifeActualPayment: {
             amount: 15400,
@@ -1517,7 +1631,7 @@ const rawMockOrders: Order[] = [
         orderDate: format(subHours(now, 2), "yyyy-MM-dd HH:mm"),
         marketPaidAt: format(subHours(now, 2), "yyyy-MM-dd HH:mm"),
         status: "PREPARING",
-        marketOrderStatus: "DELIVERING",
+        marketOrderStatus: "PAYED",
         marketDeliveryMethod: "DIRECT_DELIVERY",
         buyerName: "김도현",
         buyerId: "dohyun_kim",
@@ -1550,12 +1664,12 @@ const rawMockOrders: Order[] = [
     },
     {
         id: "ORD-20260618-0037",
-        marketOrderId: "COUPANG-DIRECT-SOURCED-SHIP-0037",
-        marketType: "coupang",
-        storeName: "coupang_life_02",
+        marketOrderId: "11ST-DIRECT-SOURCED-WAIT-0037",
+        marketType: "11st",
+        storeName: "11st_global_01",
         orderDate: format(subHours(now, 3), "yyyy-MM-dd HH:mm"),
         marketPaidAt: format(subHours(now, 3), "yyyy-MM-dd HH:mm"),
-        status: "SHIPPING",
+        status: "READY_TO_SHIP",
         marketOrderStatus: "DELIVERING",
         marketDeliveryMethod: "DIRECT_DELIVERY",
         buyerName: "박서연",
@@ -1572,7 +1686,7 @@ const rawMockOrders: Order[] = [
         },
         product: {
             id: "PROD-037",
-            productOrderId: "COUPANG-PROD-DIRECT-0037",
+            productOrderId: "11ST-PROD-DIRECT-0037",
             name: "대형 화분 현장 전달 상품",
             thumbnail: "/images/dummy/cat-tower.png",
             optionName: "화이트 / 대형",
@@ -1641,9 +1755,9 @@ const rawMockOrders: Order[] = [
     },
     {
         id: "ORD-20260618-0039",
-        marketOrderId: "COUPANG-DIRECT-SHIP-0039",
-        marketType: "coupang",
-        storeName: "coupang_life_02",
+        marketOrderId: "11ST-DIRECT-SHIP-0039",
+        marketType: "11st",
+        storeName: "11st_global_01",
         orderDate: format(subHours(now, 10), "yyyy-MM-dd HH:mm"),
         marketPaidAt: format(subHours(now, 10), "yyyy-MM-dd HH:mm"),
         status: "SHIPPING",
@@ -1662,7 +1776,7 @@ const rawMockOrders: Order[] = [
         },
         product: {
             id: "PROD-039",
-            productOrderId: "COUPANG-PROD-DIRECT-0039",
+            productOrderId: "11ST-PROD-DIRECT-0039",
             name: "사무용 의자 업체직송",
             thumbnail: "/images/dummy/robot-vacuum.png",
             optionName: "그레이 / 조립완료",
@@ -1693,6 +1807,7 @@ const rawMockOrders: Order[] = [
         marketPaidAt: format(subHours(now, 5), "yyyy-MM-dd HH:mm"),
         status: "READY_TO_SHIP",
         marketOrderStatus: "PAYED",
+        marketDeliveryMethod: "DELIVERY",
         buyerName: "윤하진",
         buyerId: "hajin_yoon",
         buyerPhone: "010-4040-3131",
@@ -1716,7 +1831,7 @@ const rawMockOrders: Order[] = [
         paymentPrice: 54900,
         platformFee: 1810,
         expectedSettlement: 53090,
-        expectedCost: 29600,
+        expectedCost: 59600,
         sourcingLifeSyncStatus: "NOT_LINKED",
         sourcingProgressStage: "EXTERNAL_PURCHASE",
         domesticInvoice: {
@@ -1769,7 +1884,7 @@ const rawMockOrders: Order[] = [
         orderDate: format(subHours(now, 6), "yyyy-MM-dd HH:mm"),
         marketPaidAt: format(subHours(now, 6), "yyyy-MM-dd HH:mm"),
         status: "READY_TO_SHIP",
-        marketOrderStatus: "PAYED",
+        marketOrderStatus: "CANCEL_REQUESTED",
         buyerName: "강주원",
         buyerId: "juwon_kang",
         buyerPhone: "010-4242-3333",
@@ -1798,6 +1913,42 @@ const rawMockOrders: Order[] = [
         sourcingProgressStage: "SOURCED",
         sourcingLifeOrderId: "SL-20260618-0042",
         sourcingLifeSyncedAt: format(subHours(now, 2), "yyyy-MM-dd HH:mm"),
+        sourcingLifeActualPayment: {
+            amount: 24100,
+            currency: "KRW",
+            paidAt: "2026-06-18T07:45:00.000Z",
+        },
+        taoWorldPurchase: {
+            distributorId: "2100000927014",
+            purchaseOrderId: "2608284132117736042",
+            purchaseOrderLineId: "200002671042",
+            payOrderId: "2597049687002736042",
+            currency: "CNY",
+            paidAmountCny: 105.7,
+            paidAt: "2026-06-18T07:45:00.000Z",
+        },
+        sourcingRefund: {
+            id: "SR-ORD-20260618-0042-DEMO",
+            providerRefundId: "110000312042",
+            providerPurchaseOrderId: "2608284132117736042",
+            providerPayOrderId: "2597049687002736042",
+            providerStatusCode: 10,
+            purchaseOrderLineId: "200002671042",
+            type: "REFUND_ONLY",
+            goodsStatus: "NOT_SHIPPED",
+            status: "PROVIDER_REVIEW",
+            reasonId: "403769",
+            reasonLabel: "더 이상 원하지 않음",
+            refundDescription: "마켓 구매자 취소 접수 후 중국 구매 회수 요청",
+            refundFeeCny: 105.7,
+            currency: "CNY",
+            estimatedRefundKrw: 24100,
+            estimatedDeductionKrw: 0,
+            requestedAt: "2026-06-18T08:30:00.000Z",
+            updatedAt: "2026-06-18T08:30:00.000Z",
+            marketClaimId: "NAVER-CANCEL-DEMO-0042",
+            providerMessage: "환불 요청을 접수했습니다. 중국 판매자의 승인 또는 거절 응답을 기다리고 있습니다.",
+        },
         domesticInvoice: {
             carrier: "CJ대한통운",
             trackingNumber: "512606180042",
@@ -1842,6 +1993,44 @@ const rawMockOrders: Order[] = [
         sourcingProgressStage: "CUSTOMS_CLEARANCE",
         sourcingLifeOrderId: "SL-20260618-0043",
         sourcingLifeSyncedAt: format(subHours(now, 2), "yyyy-MM-dd HH:mm"),
+        sourcingLifeActualPayment: {
+            amount: 20100,
+            currency: "KRW",
+            paidAt: "2026-06-18T06:40:00.000Z",
+        },
+        taoWorldPurchase: {
+            distributorId: "2100000927014",
+            purchaseOrderId: "2608284132117736043",
+            purchaseOrderLineId: "200002671043",
+            payOrderId: "2597049687002736043",
+            currency: "CNY",
+            paidAmountCny: 88.16,
+            paidAt: "2026-06-18T06:40:00.000Z",
+        },
+        sourcingRefund: {
+            id: "SR-ORD-20260618-0043-DEMO",
+            providerRefundId: "110000312043",
+            providerPurchaseOrderId: "2608284132117736043",
+            providerPayOrderId: "2597049687002736043",
+            providerStatusCode: 20,
+            purchaseOrderLineId: "200002671043",
+            type: "RETURN_AND_REFUND",
+            goodsStatus: "RECEIVED",
+            status: "RETURN_REQUIRED",
+            reasonId: "990001",
+            reasonLabel: "상품 파손·기능 불량 (데모 render 응답)",
+            refundDescription: "중국 물류센터에서 상품 파손 사진을 확인해 반품 후 환불 요청",
+            refundImageUrls: ["https://example.com/demo-damage-evidence.jpg"],
+            refundFeeCny: 88.16,
+            currency: "CNY",
+            approvedRefundFeeCny: 73.68,
+            estimatedRefundKrw: 16800,
+            estimatedDeductionKrw: 3300,
+            requestedAt: "2026-06-18T07:10:00.000Z",
+            updatedAt: "2026-06-18T09:20:00.000Z",
+            marketClaimId: "COUPANG-RETURN-DEMO-0043",
+            providerMessage: "판매자가 반품에 동의했습니다. TaoWorld 반품 택배사와 송장을 등록하세요.",
+        },
         domesticInvoice: {
             carrier: "CJ대한통운",
             trackingNumber: "512606180043",
@@ -1884,7 +2073,7 @@ const rawMockOrders: Order[] = [
         expectedSettlement: 60830,
         expectedCost: 33800,
         sourcingLifeSyncStatus: "NOT_LINKED",
-        sourcingProgressStage: "EXTERNAL_PURCHASE",
+        sourcingProgressStage: "DOMESTIC_SHIPPING",
         domesticInvoice: {
             carrier: "롯데택배",
             trackingNumber: "408912340044",
@@ -1931,22 +2120,22 @@ const rawMockOrders: Order[] = [
         sourcingLifeSyncStatus: "NOT_LINKED",
         sourcingProgressStage: "EXTERNAL_PURCHASE",
         domesticInvoice: {
-            carrier: "한진택배",
-            trackingNumber: "789012340045",
-            receivedAt: format(subHours(now, 1), "yyyy-MM-dd HH:mm"),
+            carrier: "CJ대한통운",
+            trackingNumber: "512606180045",
+            receivedAt: format(subHours(now, 2), "yyyy-MM-dd HH:mm"),
             source: "manual",
         },
     },
     {
         id: "ORD-20260618-0046",
-        marketOrderId: "COUPANG-EXTERNAL-DIRECT-SHIP-0046",
+        marketOrderId: "COUPANG-EXTERNAL-INVOICE-SHIP-0046",
         marketType: "coupang",
         storeName: "coupang_life_02",
         orderDate: format(subHours(now, 6), "yyyy-MM-dd HH:mm"),
         marketPaidAt: format(subHours(now, 6), "yyyy-MM-dd HH:mm"),
         status: "SHIPPING",
         marketOrderStatus: "DELIVERING",
-        marketDeliveryMethod: "DIRECT_DELIVERY",
+        marketDeliveryMethod: "DELIVERY",
         buyerName: "오하린",
         buyerId: "harin_oh",
         buyerPhone: "010-4646-3737",
@@ -1960,7 +2149,7 @@ const rawMockOrders: Order[] = [
         },
         product: {
             id: "PROD-046",
-            productOrderId: "COUPANG-PROD-EXTERNAL-DIRECT-0046",
+            productOrderId: "COUPANG-PROD-EXTERNAL-INVOICE-0046",
             name: "외부 구매 이동식 행거",
             thumbnail: "/images/dummy/camping-chair.png",
             optionName: "블랙 / 1200mm",
@@ -1972,12 +2161,487 @@ const rawMockOrders: Order[] = [
         expectedSettlement: 85970,
         expectedCost: 51600,
         sourcingLifeSyncStatus: "NOT_LINKED",
-        sourcingProgressStage: "EXTERNAL_PURCHASE",
+        sourcingProgressStage: "DOMESTIC_SHIPPING",
         domesticInvoice: {
             carrier: "CJ대한통운",
             trackingNumber: "512606180046",
             receivedAt: format(subHours(now, 2), "yyyy-MM-dd HH:mm"),
+            uploadedToMarketAt: format(subHours(now, 1), "yyyy-MM-dd HH:mm"),
             source: "manual",
+            uploadMode: "manual",
+        },
+    },
+    {
+        id: "ORD-20260618-0047",
+        marketOrderId: "11ST-SOURCING-REFUND-RECONCILE-0047",
+        marketType: "11st",
+        storeName: "11st_global_01",
+        orderDate: format(subHours(now, 8), "yyyy-MM-dd HH:mm"),
+        marketPaidAt: format(subHours(now, 8), "yyyy-MM-dd HH:mm"),
+        status: "READY_TO_SHIP",
+        marketOrderStatus: "PAYED",
+        buyerName: "정가은",
+        buyerId: "gaeun_jung",
+        buyerPhone: "010-4747-3838",
+        recipient: {
+            name: "정가은",
+            phone: "010-4747-3838",
+            personalCustomsCode: "P474738381234",
+            zipCode: "35229",
+            address: "대전광역시 서구 둔산로 100",
+            deliveryMessage: "배송 전 연락 부탁드립니다.",
+        },
+        product: {
+            id: "PROD-047",
+            productOrderId: "11ST-PROD-SOURCING-REFUND-0047",
+            name: "소싱환불 결과 확인 무선 수납등",
+            thumbnail: "/images/dummy/vintage-lamp.png",
+            optionName: "화이트 / 충전형",
+            quantity: 1,
+            unitPrice: 42900,
+        },
+        paymentPrice: 42900,
+        platformFee: 1410,
+        expectedSettlement: 41490,
+        expectedCost: 22600,
+        sourcingLifeSyncStatus: "PAID",
+        sourcingProgressStage: "SOURCED",
+        sourcingLifeOrderId: "SL-20260618-0047",
+        sourcingLifeSyncedAt: format(subHours(now, 4), "yyyy-MM-dd HH:mm"),
+        sourcingLifeActualPayment: {
+            amount: 22600,
+            currency: "KRW",
+            paidAt: "2026-06-18T05:20:00.000Z",
+        },
+        taoWorldPurchase: {
+            distributorId: "2100000927014",
+            purchaseOrderId: "2608284132117736047",
+            purchaseOrderLineId: "200002671047",
+            payOrderId: "2597049687002736047",
+            currency: "CNY",
+            paidAmountCny: 99.12,
+            paidAt: "2026-06-18T05:20:00.000Z",
+        },
+        sourcingRefund: {
+            id: "SR-ORD-20260618-0047-DEMO",
+            providerRefundId: "110000312047",
+            providerPurchaseOrderId: "2608284132117736047",
+            providerPayOrderId: "2597049687002736047",
+            providerStatusCode: -1,
+            purchaseOrderLineId: "200002671047",
+            type: "REFUND_ONLY",
+            goodsStatus: "NOT_SHIPPED",
+            status: "RECONCILIATION_REQUIRED",
+            reasonId: "403769",
+            reasonLabel: "더 이상 원하지 않음",
+            refundDescription: "환불 요청 후 응답 결과가 불명확해 수동 확인 필요",
+            refundFeeCny: 99.12,
+            currency: "CNY",
+            estimatedRefundKrw: 22600,
+            requestedAt: "2026-06-18T06:00:00.000Z",
+            updatedAt: "2026-06-18T06:15:00.000Z",
+            providerMessage: "요청 응답과 후속 조회 결과가 일치하지 않습니다. 환불 원장을 확인하세요.",
+        },
+        domesticInvoice: {
+            carrier: "CJ대한통운",
+            trackingNumber: "512606180047",
+            receivedAt: format(subHours(now, 3), "yyyy-MM-dd HH:mm"),
+            source: "sourcing_life",
+        },
+    },
+    {
+        id: "ORD-20260618-0048",
+        marketOrderId: "NAVER-SOURCING-REFUND-PENDING-0048",
+        marketType: "naver",
+        storeName: "naver_home_02",
+        orderDate: format(subHours(now, 9), "yyyy-MM-dd HH:mm"),
+        marketPaidAt: format(subHours(now, 9), "yyyy-MM-dd HH:mm"),
+        status: "READY_TO_SHIP",
+        marketOrderStatus: "CANCEL_REQUESTED",
+        buyerName: "최하윤",
+        buyerId: "hayoon_choi",
+        buyerPhone: "010-4848-3939",
+        recipient: {
+            name: "최하윤",
+            phone: "010-4848-3939",
+            personalCustomsCode: "P484839391234",
+            zipCode: "04104",
+            address: "서울특별시 마포구 월드컵북로 21",
+            deliveryMessage: "발송 전 취소 요청",
+        },
+        product: {
+            id: "PROD-048",
+            productOrderId: "NAVER-PROD-SOURCING-REFUND-0048",
+            name: "미발송 환불 처리중 접이식 선반",
+            thumbnail: "/images/dummy/tv-stand.png",
+            optionName: "화이트 / 3단",
+            quantity: 1,
+            unitPrice: 51900,
+        },
+        paymentPrice: 51900,
+        platformFee: 1710,
+        expectedSettlement: 50190,
+        expectedCost: 27800,
+        sourcingLifeSyncStatus: "PAID",
+        sourcingProgressStage: "SOURCED",
+        sourcingLifeOrderId: "SL-20260618-0048",
+        sourcingLifeSyncedAt: format(subHours(now, 5), "yyyy-MM-dd HH:mm"),
+        sourcingLifeActualPayment: {
+            amount: 27800,
+            currency: "KRW",
+            paidAt: "2026-06-18T04:50:00.000Z",
+        },
+        taoWorldPurchase: {
+            distributorId: "2100000927014",
+            purchaseOrderId: "2608284132117736048",
+            purchaseOrderLineId: "200002671048",
+            payOrderId: "2597049687002736048",
+            currency: "CNY",
+            paidAmountCny: 121.93,
+            paidAt: "2026-06-18T04:50:00.000Z",
+        },
+        sourcingRefund: {
+            id: "SR-ORD-20260618-0048-DEMO",
+            providerRefundId: "110000312048",
+            providerPurchaseOrderId: "2608284132117736048",
+            providerPayOrderId: "2597049687002736048",
+            providerStatusCode: 90,
+            purchaseOrderLineId: "200002671048",
+            type: "REFUND_ONLY",
+            goodsStatus: "NOT_SHIPPED",
+            status: "REFUND_PENDING",
+            reasonId: "403769",
+            reasonLabel: "더 이상 원하지 않음",
+            refundDescription: "판매자 발송 전에 반품 없이 환불만 요청",
+            refundFeeCny: 121.93,
+            currency: "CNY",
+            approvedRefundFeeCny: 121.93,
+            estimatedRefundKrw: 27800,
+            estimatedDeductionKrw: 0,
+            requestedAt: "2026-06-18T05:10:00.000Z",
+            updatedAt: "2026-06-18T06:00:00.000Z",
+            marketClaimId: "NAVER-CANCEL-DEMO-0048",
+            providerMessage: "판매자가 미발송 환불에 동의했습니다. TaoWorld 환불 완료를 기다리고 있습니다.",
+        },
+        domesticInvoice: {
+            carrier: "CJ대한통운",
+            trackingNumber: "512606180048",
+            receivedAt: format(subHours(now, 4), "yyyy-MM-dd HH:mm"),
+            source: "sourcing_life",
+        },
+    },
+    {
+        id: "ORD-20260618-0049",
+        marketOrderId: "COUPANG-SOURCING-RETURN-IN-TRANSIT-0049",
+        marketType: "coupang",
+        storeName: "coupang_life_02",
+        orderDate: format(subHours(now, 10), "yyyy-MM-dd HH:mm"),
+        marketPaidAt: format(subHours(now, 10), "yyyy-MM-dd HH:mm"),
+        status: "READY_TO_SHIP",
+        marketOrderStatus: "PAYED",
+        buyerName: "윤지호",
+        buyerId: "jiho_yoon",
+        buyerPhone: "010-4949-4040",
+        recipient: {
+            name: "윤지호",
+            phone: "010-4949-4040",
+            personalCustomsCode: "P494940401234",
+            zipCode: "48058",
+            address: "부산광역시 해운대구 센텀중앙로 79",
+            deliveryMessage: "파손 확인 후 반품 진행",
+        },
+        product: {
+            id: "PROD-049",
+            productOrderId: "COUPANG-PROD-SOURCING-RETURN-0049",
+            name: "중국 반품 배송중 원목 벽선반",
+            thumbnail: "/images/dummy/vintage-lamp.png",
+            optionName: "월넛 / 80cm",
+            quantity: 1,
+            unitPrice: 67900,
+        },
+        paymentPrice: 67900,
+        platformFee: 2240,
+        expectedSettlement: 65660,
+        expectedCost: 36400,
+        sourcingLifeSyncStatus: "INVOICE_RECEIVED",
+        sourcingProgressStage: "CUSTOMS_CLEARANCE",
+        sourcingLifeOrderId: "SL-20260618-0049",
+        sourcingLifeSyncedAt: format(subHours(now, 6), "yyyy-MM-dd HH:mm"),
+        sourcingLifeActualPayment: {
+            amount: 36400,
+            currency: "KRW",
+            paidAt: "2026-06-18T03:40:00.000Z",
+        },
+        taoWorldPurchase: {
+            distributorId: "2100000927014",
+            purchaseOrderId: "2608284132117736049",
+            purchaseOrderLineId: "200002671049",
+            payOrderId: "2597049687002736049",
+            currency: "CNY",
+            paidAmountCny: 159.65,
+            paidAt: "2026-06-18T03:40:00.000Z",
+        },
+        sourcingRefund: {
+            id: "SR-ORD-20260618-0049-DEMO",
+            providerRefundId: "110000312049",
+            providerPurchaseOrderId: "2608284132117736049",
+            providerPayOrderId: "2597049687002736049",
+            providerStatusCode: 30,
+            purchaseOrderLineId: "200002671049",
+            type: "RETURN_AND_REFUND",
+            goodsStatus: "SENT_BACK",
+            status: "RETURN_IN_TRANSIT",
+            reasonId: "990001",
+            reasonLabel: "상품 파손·기능 불량 (데모 render 응답)",
+            refundDescription: "판매자 승인 후 중국 반품 송장을 등록해 반송 중",
+            refundImageUrls: ["https://example.com/demo-return-damage.jpg"],
+            refundFeeCny: 159.65,
+            currency: "CNY",
+            approvedRefundFeeCny: 145.18,
+            estimatedRefundKrw: 33100,
+            estimatedDeductionKrw: 3300,
+            requestedAt: "2026-06-18T04:05:00.000Z",
+            updatedAt: "2026-06-18T07:20:00.000Z",
+            marketClaimId: "COUPANG-RETURN-DEMO-0049",
+            returnLogistics: {
+                companyCode: "SF",
+                companyName: "顺丰速运(SF Express)",
+                trackingNumber: "SF202606180049",
+                buyerPhone: "15068763422",
+                description: "파손 상품 원포장 반송",
+                submittedAt: "2026-06-18T07:20:00.000Z",
+            },
+            providerMessage: "중국 반품이 배송 중입니다. 판매자 수령 확인 후 환불 정산으로 이동합니다.",
+        },
+        domesticInvoice: {
+            carrier: "CJ대한통운",
+            trackingNumber: "512606180049",
+            receivedAt: format(subHours(now, 4), "yyyy-MM-dd HH:mm"),
+            source: "sourcing_life",
+        },
+    },
+    {
+        id: "ORD-20260618-0050",
+        marketOrderId: "NAVER-20260618-5050",
+        marketType: "naver",
+        storeName: "홈데코마켓",
+        orderDate: format(subHours(now, 7), "yyyy-MM-dd HH:mm"),
+        marketPaidAt: format(subHours(now, 7), "yyyy-MM-dd HH:mm"),
+        status: "READY_TO_SHIP",
+        marketOrderStatus: "PAYED",
+        buyerName: "송하늘",
+        buyerId: "skyhome50",
+        buyerPhone: "010-5050-5050",
+        recipient: {
+            name: "송하늘",
+            phone: "010-5050-5050",
+            personalCustomsCode: "P505050501234",
+            zipCode: "35229",
+            address: "대전광역시 서구 둔산로 100",
+            deliveryMessage: "환불 완료 후 다른 판매처에서 재소싱 예정",
+        },
+        product: {
+            id: "PROD-050",
+            productOrderId: "NAVER-PROD-RESOURCING-0050",
+            name: "환불 완료 재소싱 대기 라탄 수납함",
+            thumbnail: "/images/dummy/cat-tower.png",
+            optionName: "내추럴 / 대형",
+            quantity: 2,
+            unitPrice: 42900,
+        },
+        paymentPrice: 85800,
+        platformFee: 3000,
+        expectedSettlement: 82800,
+        expectedCost: 45600,
+        sourcingLifeSyncStatus: "PAID",
+        sourcingProgressStage: "SOURCED",
+        sourcingLifeOrderId: "SL-20260618-0050-OLD",
+        sourcingLifeSyncedAt: format(subHours(now, 5), "yyyy-MM-dd HH:mm"),
+        sourcingLifeActualPayment: {
+            amount: 45600,
+            currency: "KRW",
+            paidAt: "2026-06-18T04:10:00.000Z",
+        },
+        taoWorldPurchase: {
+            distributorId: "2100000927014",
+            purchaseOrderId: "2608284132117736050",
+            purchaseOrderLineId: "200002671050",
+            payOrderId: "2597049687002736050",
+            currency: "CNY",
+            paidAmountCny: 199.99,
+            paidAt: "2026-06-18T04:10:00.000Z",
+        },
+        sourcingRefund: {
+            id: "SR-ORD-20260618-0050-DEMO",
+            providerRefundId: "110000312050",
+            providerPurchaseOrderId: "2608284132117736050",
+            providerPayOrderId: "2597049687002736050",
+            providerStatusCode: 100,
+            purchaseOrderLineId: "200002671050",
+            type: "REFUND_ONLY",
+            goodsStatus: "NOT_SHIPPED",
+            status: "REFUNDED",
+            reasonId: "403529",
+            reasonLabel: "판매자 품절",
+            refundDescription: "기존 판매처 품절로 결제금액 전액 환불 완료",
+            refundFeeCny: 199.99,
+            currency: "CNY",
+            approvedRefundFeeCny: 199.99,
+            estimatedRefundKrw: 45600,
+            estimatedDeductionKrw: 0,
+            requestedAt: "2026-06-18T04:20:00.000Z",
+            updatedAt: "2026-06-18T06:20:00.000Z",
+            providerMessage: "TaoWorld query에서 환불 완료를 확인했습니다. 다른 판매처로 다시 소싱할 수 있습니다.",
+        },
+        domesticInvoice: {
+            carrier: "CJ대한통운",
+            trackingNumber: "512606180050",
+            receivedAt: format(subHours(now, 4), "yyyy-MM-dd HH:mm"),
+            source: "sourcing_life",
+        },
+    },
+    {
+        id: "ORD-20260618-0053",
+        marketOrderId: "NAVER-EXTERNAL-OVERSEAS-WAIT-0053",
+        marketType: "naver",
+        storeName: "naver_living_01",
+        orderDate: format(subHours(now, 4), "yyyy-MM-dd HH:mm"),
+        marketPaidAt: format(subHours(now, 4), "yyyy-MM-dd HH:mm"),
+        status: "READY_TO_SHIP",
+        marketOrderStatus: "PAYED",
+        marketDeliveryMethod: "OVERSEAS_OTHER_DELIVERY",
+        marketShippingReference: {
+            carrier: "해외기타택배",
+            trackingNumber: "YT202606180053CN",
+            registeredAt: format(subHours(now, 2), "yyyy-MM-dd HH:mm"),
+        },
+        buyerName: "이지안",
+        buyerId: "jian_global53",
+        buyerPhone: "010-5353-5353",
+        recipient: {
+            name: "이지안",
+            phone: "010-5353-5353",
+            personalCustomsCode: "P535353531234",
+            zipCode: "04167",
+            address: "서울특별시 마포구 마포대로 92",
+            detailAddress: "1204호",
+            deliveryMessage: "해외 배송 출발 시 문자 부탁드립니다.",
+        },
+        product: {
+            id: "PROD-053",
+            productOrderId: "NAVER-PROD-OVERSEAS-0053",
+            name: "외부 구매 무선 센서등 2개 세트",
+            thumbnail: "/images/dummy/vintage-lamp.png",
+            optionName: "웜화이트 / USB 충전형",
+            quantity: 1,
+            unitPrice: 36900,
+        },
+        paymentPrice: 36900,
+        platformFee: 1220,
+        expectedSettlement: 35680,
+        expectedCost: 18400,
+        sourcingLifeSyncStatus: "NOT_LINKED",
+        sourcingProgressStage: "EXTERNAL_PURCHASE",
+        domesticInvoice: {
+            carrier: "CJ대한통운",
+            trackingNumber: "512606180053",
+            receivedAt: format(subHours(now, 2), "yyyy-MM-dd HH:mm"),
+            source: "manual",
+        },
+    },
+    {
+        id: "ORD-20260618-0054",
+        marketOrderId: "NAVER-EXTERNAL-OVERSEAS-SHIP-0054",
+        marketType: "naver",
+        storeName: "naver_home_02",
+        orderDate: format(subHours(now, 9), "yyyy-MM-dd HH:mm"),
+        marketPaidAt: format(subHours(now, 9), "yyyy-MM-dd HH:mm"),
+        status: "SHIPPING",
+        marketOrderStatus: "DELIVERING",
+        marketDeliveryMethod: "OVERSEAS_OTHER_DELIVERY",
+        marketShippingReference: {
+            carrier: "해외기타택배",
+            trackingNumber: "SF202606180054CN",
+            registeredAt: format(subHours(now, 6), "yyyy-MM-dd HH:mm"),
+        },
+        buyerName: "김태윤",
+        buyerId: "taeyoon_home54",
+        buyerPhone: "010-5454-5454",
+        recipient: {
+            name: "김태윤",
+            phone: "010-5454-5454",
+            personalCustomsCode: "P545454541234",
+            zipCode: "13529",
+            address: "경기도 성남시 분당구 판교역로 166",
+            detailAddress: "1802호",
+            deliveryMessage: "경비실에 맡겨주세요.",
+        },
+        product: {
+            id: "PROD-054",
+            productOrderId: "NAVER-PROD-OVERSEAS-0054",
+            name: "외부 구매 알루미늄 노트북 거치대",
+            thumbnail: "/images/dummy/robot-vacuum.png",
+            optionName: "실버 / 15인치",
+            quantity: 1,
+            unitPrice: 47900,
+        },
+        paymentPrice: 47900,
+        platformFee: 1580,
+        expectedSettlement: 46320,
+        expectedCost: 25100,
+        sourcingLifeSyncStatus: "NOT_LINKED",
+        sourcingProgressStage: "DOMESTIC_SHIPPING",
+        domesticInvoice: {
+            carrier: "한진택배",
+            trackingNumber: "512606180054",
+            receivedAt: format(subHours(now, 7), "yyyy-MM-dd HH:mm"),
+            source: "manual",
+        },
+    },
+    {
+        id: "ORD-20260618-0055",
+        marketOrderId: "NAVER-DIRECT-TO-INVOICE-CORRECTED-0055",
+        marketType: "naver",
+        storeName: "naver_living_01",
+        orderDate: format(subHours(now, 14), "yyyy-MM-dd HH:mm"),
+        marketPaidAt: format(subHours(now, 14), "yyyy-MM-dd HH:mm"),
+        status: "SHIPPING",
+        marketOrderStatus: "DELIVERING",
+        marketDeliveryMethod: "DELIVERY",
+        buyerName: "한서진",
+        buyerId: "seojin_global55",
+        buyerPhone: "010-5555-5656",
+        recipient: {
+            name: "한서진",
+            phone: "010-5555-5656",
+            personalCustomsCode: "P555556561234",
+            zipCode: "06236",
+            address: "서울특별시 강남구 테헤란로 152",
+            detailAddress: "902호",
+            deliveryMessage: "통관 후 국내송장으로 변경 완료",
+        },
+        product: {
+            id: "PROD-055",
+            productOrderId: "NAVER-PROD-DIRECT-CORRECTED-0055",
+            name: "외부 구매 접이식 여행용 카트",
+            thumbnail: "/images/dummy/camping-chair.png",
+            optionName: "블랙 / 65L",
+            quantity: 1,
+            unitPrice: 59900,
+        },
+        paymentPrice: 59900,
+        platformFee: 1980,
+        expectedSettlement: 57920,
+        expectedCost: 31900,
+        sourcingLifeSyncStatus: "NOT_LINKED",
+        sourcingProgressStage: "DOMESTIC_SHIPPING",
+        domesticInvoice: {
+            carrier: "CJ대한통운",
+            trackingNumber: "512606180055",
+            receivedAt: format(subHours(now, 3), "yyyy-MM-dd HH:mm"),
+            uploadedToMarketAt: format(subHours(now, 2), "yyyy-MM-dd HH:mm"),
+            source: "manual",
+            uploadMode: "crawler",
         },
     },
 ];
@@ -2021,6 +2685,205 @@ function createDemoSourcingMatch(order: Order) {
     };
 }
 
+function createDemoTaoWorldPurchase(order: Order, index: number): NonNullable<Order["taoWorldPurchase"]> {
+    const amountKrw = order.sourcingLifeActualPayment?.amount ?? order.expectedCost ?? 0;
+    const sequence = String(index + 1).padStart(6, "0");
+    return {
+        distributorId: "2100000927014",
+        purchaseOrderId: `2608284132${sequence}`,
+        purchaseOrderLineId: `20000267${sequence}`,
+        payOrderId: `2597049687${sequence}`,
+        currency: "CNY",
+        paidAmountCny: Number(Math.max(0.01, amountKrw / 190).toFixed(2)),
+        paidAt: order.sourcingLifeActualPayment?.paidAt ?? order.sourcingLifeSyncedAt ?? order.orderDate,
+    };
+}
+
+function createDemoChinaInvoice(order: Order, index: number): NonNullable<Order["chinaInvoice"]> {
+    const sequence = String(index + 1).padStart(10, "0");
+    return {
+        carrier: index % 2 === 0 ? "중통택배" : "위안퉁택배",
+        trackingNumber: `CN${sequence}`,
+        receivedAt: order.sourcingLifeSyncedAt ?? order.orderDate,
+        source: "sourcing_life",
+    };
+}
+
+function createDemoDomesticInvoice(order: Order, index: number): NonNullable<Order["domesticInvoice"]> {
+    return {
+        carrier: index % 2 === 0 ? "CJ대한통운" : "롯데택배",
+        trackingNumber: `5126${String(index + 1).padStart(8, "0")}`,
+        receivedAt: order.sourcingLifeSyncedAt ?? order.orderDate,
+        source: "sourcing_life",
+    };
+}
+
+const HISTORY_STAGE_RANK = {
+    MATCH_REQUIRED: 1,
+    MATCH_PENDING_REVIEW: 2,
+    MATCHED: 2,
+    PAYMENT_WAITING: 3,
+    EXTERNAL_PURCHASE: 4,
+    SOURCED: 4,
+    CHINA_SHIPPING: 5,
+    CUSTOMS_CLEARANCE: 6,
+    DOMESTIC_SHIPPING: 7,
+    DELIVERED: 8,
+} as const;
+
+function parseDemoDate(value?: string) {
+    if (!value) return undefined;
+    const parsed = new Date(value.replace(" ", "T"));
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+function createHistoryTime(order: Order, index: number, ordinal: number, lastOrdinal: number) {
+    const start = parseDemoDate(order.orderDate) ?? subDays(now, 1);
+    const endCandidate = new Date(now.getTime() - (index % 4) * 15 * 60 * 1000);
+    const end = endCandidate.getTime() > start.getTime()
+        ? endCandidate
+        : new Date(start.getTime() + 10 * 60 * 1000);
+    const ratio = Math.min(1, ordinal / Math.max(1, lastOrdinal));
+    return format(new Date(start.getTime() + (end.getTime() - start.getTime()) * ratio), "yyyy-MM-dd HH:mm");
+}
+
+function enrichOrderHistoryDemo(order: Order, index: number): Order {
+    const stage = order.sourcingProgressStage ?? (order.status === "DELIVERED" ? "DELIVERED" : "MATCH_REQUIRED");
+    const rank = HISTORY_STAGE_RANK[stage];
+    const nonOutboundEvents = (order.deliveryHistory ?? []).filter((event) => event.flow !== "OUTBOUND");
+    const hasClaimRequest = Boolean(order.claimType && order.claimRequestedAt);
+    const hasClaimCompletion = Boolean(order.claimType && order.claimProcessedAt);
+    const hasSellerCancellation = order.status === "CANCELED";
+    const refundHistorySteps = (order.sourcingRefundHistory?.length ?? 0) * 2;
+    const sourcingRefundSteps = order.sourcingRefund
+        ? 2 + (order.sourcingRefund.returnLogistics ? 1 : 0)
+        : 0;
+    const claimSteps = (hasClaimRequest ? 1 : 0) + nonOutboundEvents.length + (hasClaimCompletion ? 1 : 0);
+    const cancellationSteps = hasSellerCancellation ? 1 : 0;
+    const lastOrdinal = Math.max(rank, 1) + refundHistorySteps + sourcingRefundSteps + claimSteps + cancellationSteps;
+    const at = (ordinal: number) => createHistoryTime(order, index, ordinal, lastOrdinal);
+    const chinaInvoice = rank >= HISTORY_STAGE_RANK.CHINA_SHIPPING
+        ? {
+            ...(order.chinaInvoice ?? createDemoChinaInvoice(order, index)),
+            receivedAt: at(5),
+        }
+        : undefined;
+    const domesticInvoice = order.domesticInvoice ? {
+        ...order.domesticInvoice,
+        receivedAt: at(Math.min(4, rank)),
+        uploadedToMarketAt: order.domesticInvoice.uploadedToMarketAt
+            ? at(rank >= HISTORY_STAGE_RANK.DOMESTIC_SHIPPING ? 7 : Math.min(4, rank))
+            : undefined,
+    } : undefined;
+    const outboundHistory: NonNullable<Order["deliveryHistory"]> = [];
+
+    if (rank >= HISTORY_STAGE_RANK.CHINA_SHIPPING) {
+        outboundHistory.push({
+            id: `${order.id}-HISTORY-CHINA`,
+            flow: "OUTBOUND",
+            label: "중국 판매자 출고",
+            description: "중국 판매자가 상품을 출고해 현지 배송이 시작되었습니다.",
+            occurredAt: at(5),
+            location: index % 2 === 0 ? "중국 저장성 이우" : "중국 광둥성 선전",
+            carrier: chinaInvoice?.carrier,
+            trackingNumber: chinaInvoice?.trackingNumber,
+        });
+    }
+
+    if (rank >= HISTORY_STAGE_RANK.CUSTOMS_CLEARANCE) {
+        outboundHistory.push({
+            id: `${order.id}-HISTORY-CUSTOMS`,
+            flow: "OUTBOUND",
+            label: rank === HISTORY_STAGE_RANK.CUSTOMS_CLEARANCE ? "수입 통관 진행" : "통관완료",
+            description: rank === HISTORY_STAGE_RANK.CUSTOMS_CLEARANCE
+                ? "수입 신고가 접수되어 통관 절차가 진행 중입니다."
+                : "수입 통관을 마치고 국내 택배사 인계를 준비합니다.",
+            occurredAt: at(6),
+            location: index % 3 === 0 ? "평택세관" : "인천세관",
+            trackingNumber: chinaInvoice?.trackingNumber,
+        });
+    }
+
+    if (rank >= HISTORY_STAGE_RANK.DOMESTIC_SHIPPING) {
+        outboundHistory.push({
+            id: `${order.id}-HISTORY-DOMESTIC`,
+            flow: "OUTBOUND",
+            label: "국내 배송시작",
+            description: "통관을 마친 상품이 국내 택배사에 인계되었습니다.",
+            occurredAt: at(7),
+            location: "국내 허브터미널",
+            carrier: domesticInvoice?.carrier,
+            trackingNumber: domesticInvoice?.trackingNumber,
+        });
+    }
+
+    if (rank >= HISTORY_STAGE_RANK.DELIVERED) {
+        outboundHistory.push({
+            id: `${order.id}-HISTORY-DELIVERED`,
+            flow: "OUTBOUND",
+            label: "배송완료",
+            description: "수령인에게 상품 배송을 완료했습니다.",
+            occurredAt: at(8),
+            location: order.recipient.address,
+            carrier: domesticInvoice?.carrier,
+            trackingNumber: domesticInvoice?.trackingNumber,
+        });
+    }
+
+    const refundStartOrdinal = rank + refundHistorySteps;
+    const claimStartOrdinal = refundStartOrdinal + sourcingRefundSteps;
+    const claimDeliveryHistory = nonOutboundEvents.map((event, eventIndex) => ({
+        ...event,
+        occurredAt: at(claimStartOrdinal + (hasClaimRequest ? 2 : 1) + eventIndex),
+    }));
+    const sourcingLifeActualPayment = order.sourcingLifeActualPayment ? {
+        ...order.sourcingLifeActualPayment,
+        paidAt: at(4),
+    } : undefined;
+    const taoWorldPurchase = order.taoWorldPurchase ? {
+        ...order.taoWorldPurchase,
+        paidAt: at(4),
+    } : undefined;
+    const sourcingRefundHistory = order.sourcingRefundHistory?.map((refund, refundIndex) => ({
+        ...refund,
+        requestedAt: at(rank + refundIndex * 2 + 1),
+        updatedAt: at(rank + refundIndex * 2 + 2),
+        returnLogistics: refund.returnLogistics ? {
+            ...refund.returnLogistics,
+            submittedAt: at(rank + refundIndex * 2 + 2),
+        } : undefined,
+    }));
+    const sourcingRefund = order.sourcingRefund ? {
+        ...order.sourcingRefund,
+        requestedAt: at(refundStartOrdinal + 1),
+        updatedAt: at(refundStartOrdinal + sourcingRefundSteps),
+        returnLogistics: order.sourcingRefund.returnLogistics ? {
+            ...order.sourcingRefund.returnLogistics,
+            submittedAt: at(refundStartOrdinal + 2),
+        } : undefined,
+    } : undefined;
+
+    return {
+        ...order,
+        orderAcceptedAt: order.status !== "NEW" && order.previousStatus !== "NEW" ? at(1) : undefined,
+        sourcingMatchedAt: order.sourcingLifeMatch ? at(2) : undefined,
+        sourcingPaymentRequestedAt: (order.sourcingPaymentRequestedAt || sourcingLifeActualPayment) && order.sourcingLifeMatch
+            ? at(3)
+            : undefined,
+        sourcingLifeSyncedAt: order.sourcingLifeSyncedAt ? at(rank) : undefined,
+        sourcingLifeActualPayment,
+        taoWorldPurchase,
+        sourcingRefund,
+        sourcingRefundHistory,
+        domesticInvoice,
+        chinaInvoice,
+        deliveryHistory: [...outboundHistory, ...claimDeliveryHistory],
+        claimRequestedAt: hasClaimRequest ? at(claimStartOrdinal + 1) : undefined,
+        claimProcessedAt: hasClaimCompletion ? at(lastOrdinal) : undefined,
+        sellerCanceledAt: hasSellerCancellation ? at(lastOrdinal) : undefined,
+    };
+}
+
 function normalizeMockOrder(order: Order, index: number): Order {
     const isExternalPurchase = order.sourcingProgressStage === "EXTERNAL_PURCHASE";
     const isPaymentWaiting = order.sourcingLifeSyncStatus === "PAYMENT_READY" || order.sourcingProgressStage === "PAYMENT_WAITING";
@@ -2046,6 +2909,7 @@ function normalizeMockOrder(order: Order, index: number): Order {
     if (isPaymentWaiting) {
         return {
             ...order,
+            marketDeliveryMethod: order.marketDeliveryMethod ?? "DELIVERY",
             status: "PREPARING",
             recipient,
             sourcingLifeSyncStatus: "PAYMENT_READY",
@@ -2056,12 +2920,23 @@ function normalizeMockOrder(order: Order, index: number): Order {
             sourcingLifeOrderId: undefined,
             sourcingLifeActualPayment: undefined,
             domesticInvoice: undefined,
+            chinaInvoice: undefined,
         };
     }
 
     if (isSourcingLifePaid) {
+        const marketDispatchCompleted = order.marketOrderStatus === "DELIVERING"
+            || order.marketOrderStatus === "DELIVERED"
+            || order.marketOrderStatus === "PURCHASE_DECIDED";
+        const managedStatus = ["DELIVERED", "CLAIM", "CANCELED", "ON_HOLD"].includes(order.status)
+            ? order.status
+            : marketDispatchCompleted ? "SHIPPING" : "READY_TO_SHIP";
+        const hasChinaTracking = ["CHINA_SHIPPING", "CUSTOMS_CLEARANCE", "DOMESTIC_SHIPPING", "DELIVERED"]
+            .includes(order.sourcingProgressStage ?? "");
         return {
             ...order,
+            marketDeliveryMethod: order.marketDeliveryMethod ?? "DELIVERY",
+            status: managedStatus,
             recipient,
             sourcingProgressStage: order.sourcingProgressStage && !["MATCH_REQUIRED", "MATCH_PENDING_REVIEW", "MATCHED", "PAYMENT_WAITING"].includes(order.sourcingProgressStage)
                 ? order.sourcingProgressStage
@@ -2074,19 +2949,340 @@ function normalizeMockOrder(order: Order, index: number): Order {
                 currency: "KRW",
                 paidAt: order.sourcingLifeSyncedAt ?? order.orderDate,
             },
+            taoWorldPurchase: order.taoWorldPurchase ?? createDemoTaoWorldPurchase(order, index),
+            domesticInvoice: order.domesticInvoice ?? createDemoDomesticInvoice(order, index),
+            chinaInvoice: order.chinaInvoice ?? (hasChinaTracking ? createDemoChinaInvoice(order, index) : undefined),
         };
     }
 
     if (isMatched) {
         return {
             ...order,
+            marketDeliveryMethod: order.marketDeliveryMethod ?? "DELIVERY",
             recipient,
             sourcingProgressStage: "MATCHED",
             sourcingLifeMatch,
         };
     }
 
-    return { ...order, recipient };
+    return { ...order, marketDeliveryMethod: order.marketDeliveryMethod ?? "DELIVERY", recipient };
 }
 
-export const mockOrders: Order[] = rawMockOrders.map(normalizeMockOrder);
+const normalizedMockOrders = rawMockOrders.map(normalizeMockOrder);
+
+const exceptionMockOrders: Order[] = [
+    {
+        ...normalizedMockOrders[0],
+        id: "ORD-20260715-0051",
+        marketOrderId: "NAVER-CANCELED-0051",
+        orderDate: format(subHours(now, 6), "yyyy-MM-dd HH:mm"),
+        marketPaidAt: format(subHours(now, 6), "yyyy-MM-dd HH:mm"),
+        status: "CANCELED",
+        previousStatus: "NEW",
+        sellerCancelReason: "판매자 재고 부족",
+        sellerCanceledAt: format(subHours(now, 5), "yyyy-MM-dd HH:mm"),
+        failureReason: "판매자 재고 확인 후 주문을 취소했습니다.",
+        product: {
+            ...normalizedMockOrders[0].product,
+            id: "PROD-051",
+            productOrderId: "NAVER-PROD-CANCELED-0051",
+            name: "라탄 수납장 내추럴 3단 · 판매자취소 사례",
+        },
+        sourcingLifeSyncStatus: "NOT_LINKED",
+        sourcingProgressStage: "MATCH_REQUIRED",
+        sourcingLifeMatch: undefined,
+    },
+    {
+        ...normalizedMockOrders[1],
+        id: "ORD-20260715-0052",
+        marketOrderId: "COUPANG-HOLD-0052",
+        orderDate: format(subHours(now, 10), "yyyy-MM-dd HH:mm"),
+        marketPaidAt: format(subHours(now, 10), "yyyy-MM-dd HH:mm"),
+        status: "ON_HOLD",
+        previousStatus: "PREPARING",
+        failureReason: "수령인 연락처 확인이 필요해 소싱 처리를 보류했습니다.",
+        product: {
+            ...normalizedMockOrders[1].product,
+            id: "PROD-052",
+            productOrderId: "CP-PROD-HOLD-0052",
+            name: "무선 창문 청소기 · 처리보류 사례",
+        },
+        sourcingLifeSyncStatus: "HOLD",
+        sourcingProgressStage: "MATCH_PENDING_REVIEW",
+        sourcingLifeSyncedAt: format(subHours(now, 8), "yyyy-MM-dd HH:mm"),
+    },
+];
+
+interface ShippingWorkflowMockConfig {
+    sequence: number;
+    marketType: Order["marketType"];
+    storeName: string;
+    marketDeliveryMethod: NonNullable<Order["marketDeliveryMethod"]>;
+    marketOrderStatus: NonNullable<Order["marketOrderStatus"]>;
+    sourcingProgressStage: NonNullable<Order["sourcingProgressStage"]>;
+    productName: string;
+    optionName: string;
+    thumbnail: string;
+    paymentPrice: number;
+    expectedCost: number;
+    carrier: string;
+    trackingNumber: string;
+    overseasTrackingNumber?: string;
+    correctedByCrawler?: boolean;
+}
+
+function createShippingWorkflowMock(config: ShippingWorkflowMockConfig): Order {
+    const sequence = String(config.sequence).padStart(4, "0");
+    const orderDate = format(subHours(now, config.sequence - 45), "yyyy-MM-dd HH:mm");
+    const marketDispatched = config.marketOrderStatus === "DELIVERING";
+    const baseOrder: Order = {
+        id: `ORD-20260618-${sequence}`,
+        marketOrderId: `${config.marketType.toUpperCase()}-SHIPPING-FLOW-${sequence}`,
+        marketType: config.marketType,
+        storeName: config.storeName,
+        orderDate,
+        marketPaidAt: orderDate,
+        status: marketDispatched ? "SHIPPING" : "READY_TO_SHIP",
+        marketOrderStatus: config.marketOrderStatus,
+        marketDeliveryMethod: config.marketDeliveryMethod,
+        shippingProcessStarted: marketDispatched,
+        buyerName: `배송시나리오 ${sequence}`,
+        buyerId: `shipping_case_${sequence}`,
+        buyerPhone: `010-${sequence}-${sequence}`,
+        recipient: {
+            name: `수령인 ${sequence}`,
+            phone: `010-${sequence}-${sequence}`,
+            personalCustomsCode: `P${sequence}${sequence}${sequence}`,
+            zipCode: "06236",
+            address: "서울특별시 강남구 테헤란로 152",
+            detailAddress: `${config.sequence}호`,
+            deliveryMessage: "배송 처리 단계별 더미 확인용 주문입니다.",
+        },
+        product: {
+            id: `PROD-${sequence}`,
+            productOrderId: `${config.marketType.toUpperCase()}-PROD-FLOW-${sequence}`,
+            name: config.productName,
+            thumbnail: config.thumbnail,
+            optionName: config.optionName,
+            quantity: 1,
+            unitPrice: config.paymentPrice,
+        },
+        paymentPrice: config.paymentPrice,
+        platformFee: Math.round(config.paymentPrice * 0.033),
+        expectedSettlement: config.paymentPrice - Math.round(config.paymentPrice * 0.033),
+        expectedCost: config.expectedCost,
+        sourcingLifeSyncStatus: "INVOICE_RECEIVED",
+        sourcingProgressStage: config.sourcingProgressStage,
+        sourcingLifeOrderId: `SL-20260618-${sequence}`,
+        sourcingLifeSyncedAt: format(subHours(now, config.sequence - 46), "yyyy-MM-dd HH:mm"),
+        sourcingLifeActualPayment: {
+            amount: config.expectedCost,
+            currency: "KRW",
+            paidAt: format(subHours(now, config.sequence - 46), "yyyy-MM-dd HH:mm"),
+        },
+        sourcingForwarder: DEFAULT_SOURCING_FORWARDER,
+        domesticInvoice: {
+            carrier: config.carrier,
+            trackingNumber: config.trackingNumber,
+            receivedAt: format(subHours(now, config.sequence - 47), "yyyy-MM-dd HH:mm"),
+            uploadedToMarketAt: config.correctedByCrawler
+                ? format(subHours(now, config.sequence - 48), "yyyy-MM-dd HH:mm")
+                : undefined,
+            source: "sourcing_life",
+            uploadMode: config.correctedByCrawler ? "crawler" : undefined,
+        },
+        marketShippingReference: config.overseasTrackingNumber ? {
+            carrier: "해외기타택배",
+            trackingNumber: config.overseasTrackingNumber,
+            registeredAt: format(subHours(now, config.sequence - 46), "yyyy-MM-dd HH:mm"),
+        } : undefined,
+    };
+
+    return {
+        ...baseOrder,
+        sourcingLifeMatch: createDemoSourcingMatch(baseOrder),
+        taoWorldPurchase: createDemoTaoWorldPurchase(baseOrder, config.sequence),
+    };
+}
+
+const shippingWorkflowMockOrders: Order[] = [
+    createShippingWorkflowMock({
+        sequence: 56,
+        marketType: "naver",
+        storeName: "naver_global_flow",
+        marketDeliveryMethod: "OVERSEAS_OTHER_DELIVERY",
+        marketOrderStatus: "DELIVERING",
+        sourcingProgressStage: "CUSTOMS_CLEARANCE",
+        productName: "[해외기타 선처리·수정잠금] 미니 빔프로젝터",
+        optionName: "화이트 / 1080P",
+        thumbnail: "/images/dummy/robot-vacuum.png",
+        paymentPrice: 129000,
+        expectedCost: 76800,
+        carrier: "CJ대한통운",
+        trackingNumber: "512606180056",
+        overseasTrackingNumber: "YT202606180056CN",
+    }),
+    createShippingWorkflowMock({
+        sequence: 57,
+        marketType: "naver",
+        storeName: "naver_living_01",
+        marketDeliveryMethod: "DIRECT_DELIVERY",
+        marketOrderStatus: "DELIVERING",
+        sourcingProgressStage: "DOMESTIC_SHIPPING",
+        productName: "[직접전달 선처리·운송장수정 가능] 원목 협탁",
+        optionName: "내추럴 / 2단",
+        thumbnail: "/images/dummy/tv-stand.png",
+        paymentPrice: 82900,
+        expectedCost: 44600,
+        carrier: "한진택배",
+        trackingNumber: "512606180057",
+    }),
+    createShippingWorkflowMock({
+        sequence: 58,
+        marketType: "11st",
+        storeName: "11st_global_01",
+        marketDeliveryMethod: "DELIVERY",
+        marketOrderStatus: "DELIVERING",
+        sourcingProgressStage: "DOMESTIC_SHIPPING",
+        productName: "[직접전달→송장수정 완료] 접이식 홈바 테이블",
+        optionName: "블랙 / 1200mm",
+        thumbnail: "/images/dummy/camping-chair.png",
+        paymentPrice: 116000,
+        expectedCost: 63200,
+        carrier: "롯데택배",
+        trackingNumber: "512606180058",
+        correctedByCrawler: true,
+    }),
+    createShippingWorkflowMock({
+        sequence: 59,
+        marketType: "coupang",
+        storeName: "coupang_life_02",
+        marketDeliveryMethod: "DELIVERY",
+        marketOrderStatus: "PAYED",
+        sourcingProgressStage: "CUSTOMS_CLEARANCE",
+        productName: "[송장전용·국내배송 전 대기] 스마트 도어 센서",
+        optionName: "화이트 / 2개입",
+        thumbnail: "/images/dummy/vintage-lamp.png",
+        paymentPrice: 45900,
+        expectedCost: 23800,
+        carrier: "CJ대한통운",
+        trackingNumber: "512606180059",
+    }),
+    createShippingWorkflowMock({
+        sequence: 60,
+        marketType: "coupang",
+        storeName: "coupang_life_02",
+        marketDeliveryMethod: "DELIVERY",
+        marketOrderStatus: "PAYED",
+        sourcingProgressStage: "DOMESTIC_SHIPPING",
+        productName: "[송장전용·배송중처리 가능] 모듈형 수납 선반",
+        optionName: "화이트 / 4단",
+        thumbnail: "/images/dummy/tv-stand.png",
+        paymentPrice: 94900,
+        expectedCost: 52100,
+        carrier: "CJ대한통운",
+        trackingNumber: "512606180060",
+    }),
+    createShippingWorkflowMock({
+        sequence: 61,
+        marketType: "gmarket",
+        storeName: "gmarket_daily_02",
+        marketDeliveryMethod: "DELIVERY",
+        marketOrderStatus: "PAYED",
+        sourcingProgressStage: "DOMESTIC_SHIPPING",
+        productName: "[송장전용·배송중처리 가능] 회전식 주방 선반",
+        optionName: "실버 / 3단",
+        thumbnail: "/images/dummy/cat-tower.png",
+        paymentPrice: 68900,
+        expectedCost: 35700,
+        carrier: "롯데택배",
+        trackingNumber: "512606180061",
+    }),
+    createShippingWorkflowMock({
+        sequence: 62,
+        marketType: "auction",
+        storeName: "auction_home_01",
+        marketDeliveryMethod: "DELIVERY",
+        marketOrderStatus: "PAYED",
+        sourcingProgressStage: "CHINA_SHIPPING",
+        productName: "[송장전용·국내배송 전 대기] 무선 테이블 조명",
+        optionName: "골드 / 웜화이트",
+        thumbnail: "/images/dummy/vintage-lamp.png",
+        paymentPrice: 39900,
+        expectedCost: 19700,
+        carrier: "한진택배",
+        trackingNumber: "512606180062",
+    }),
+];
+
+export const mockOrders: Order[] = [
+    ...normalizedMockOrders,
+    ...shippingWorkflowMockOrders,
+    ...exceptionMockOrders,
+].map(enrichOrderHistoryDemo);
+
+function shiftDemoDateTime(value: string | undefined, offsetMs: number): string | undefined {
+    if (!value) return undefined;
+    const parsed = parseDemoDate(value);
+    return !parsed
+        ? value
+        : format(new Date(parsed.getTime() + offsetMs), "yyyy-MM-dd HH:mm");
+}
+
+export function createMockOrders(referenceTime: Date | string): Order[] {
+    const reference = new Date(referenceTime);
+    reference.setSeconds(0, 0);
+    const offsetMs = reference.getTime() - DEMO_REFERENCE_TIME.getTime();
+
+    return mockOrders.map((order) => ({
+        ...order,
+        orderDate: shiftDemoDateTime(order.orderDate, offsetMs) ?? order.orderDate,
+        marketPaidAt: shiftDemoDateTime(order.marketPaidAt, offsetMs),
+        orderAcceptedAt: shiftDemoDateTime(order.orderAcceptedAt, offsetMs),
+        sourcingLifeSyncedAt: shiftDemoDateTime(order.sourcingLifeSyncedAt, offsetMs),
+        sourcingMatchedAt: shiftDemoDateTime(order.sourcingMatchedAt, offsetMs),
+        sourcingPaymentRequestedAt: shiftDemoDateTime(order.sourcingPaymentRequestedAt, offsetMs),
+        sourcingLifeActualPayment: order.sourcingLifeActualPayment ? {
+            ...order.sourcingLifeActualPayment,
+            paidAt: shiftDemoDateTime(order.sourcingLifeActualPayment.paidAt, offsetMs) ?? order.sourcingLifeActualPayment.paidAt,
+        } : undefined,
+        taoWorldPurchase: order.taoWorldPurchase ? {
+            ...order.taoWorldPurchase,
+            paidAt: shiftDemoDateTime(order.taoWorldPurchase.paidAt, offsetMs) ?? order.taoWorldPurchase.paidAt,
+        } : undefined,
+        domesticInvoice: order.domesticInvoice ? {
+            ...order.domesticInvoice,
+            receivedAt: shiftDemoDateTime(order.domesticInvoice.receivedAt, offsetMs) ?? order.domesticInvoice.receivedAt,
+            uploadedToMarketAt: shiftDemoDateTime(order.domesticInvoice.uploadedToMarketAt, offsetMs),
+        } : undefined,
+        chinaInvoice: order.chinaInvoice ? {
+            ...order.chinaInvoice,
+            receivedAt: shiftDemoDateTime(order.chinaInvoice.receivedAt, offsetMs) ?? order.chinaInvoice.receivedAt,
+        } : undefined,
+        deliveryHistory: order.deliveryHistory?.map((event) => ({
+            ...event,
+            occurredAt: shiftDemoDateTime(event.occurredAt, offsetMs),
+        })),
+        claimRequestedAt: shiftDemoDateTime(order.claimRequestedAt, offsetMs),
+        claimProcessedAt: shiftDemoDateTime(order.claimProcessedAt, offsetMs),
+        sellerCanceledAt: shiftDemoDateTime(order.sellerCanceledAt, offsetMs),
+        sourcingRefund: order.sourcingRefund ? {
+            ...order.sourcingRefund,
+            requestedAt: shiftDemoDateTime(order.sourcingRefund.requestedAt, offsetMs) ?? order.sourcingRefund.requestedAt,
+            updatedAt: shiftDemoDateTime(order.sourcingRefund.updatedAt, offsetMs) ?? order.sourcingRefund.updatedAt,
+            returnLogistics: order.sourcingRefund.returnLogistics ? {
+                ...order.sourcingRefund.returnLogistics,
+                submittedAt: shiftDemoDateTime(order.sourcingRefund.returnLogistics.submittedAt, offsetMs) ?? order.sourcingRefund.returnLogistics.submittedAt,
+            } : undefined,
+        } : undefined,
+        sourcingRefundHistory: order.sourcingRefundHistory?.map((refund) => ({
+            ...refund,
+            requestedAt: shiftDemoDateTime(refund.requestedAt, offsetMs) ?? refund.requestedAt,
+            updatedAt: shiftDemoDateTime(refund.updatedAt, offsetMs) ?? refund.updatedAt,
+            returnLogistics: refund.returnLogistics ? {
+                ...refund.returnLogistics,
+                submittedAt: shiftDemoDateTime(refund.returnLogistics.submittedAt, offsetMs) ?? refund.returnLogistics.submittedAt,
+            } : undefined,
+        })),
+    }));
+}

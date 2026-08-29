@@ -1,10 +1,11 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { ExternalLink } from "lucide-react";
+import { CheckCircle2, ExternalLink, PackageCheck, ShieldCheck, Truck } from "lucide-react";
 import Image from "next/image";
 import { toast } from "sonner";
+import { RecipientEditDialog } from "@/components/orders/recipient-edit-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -19,10 +20,30 @@ import {
     LiveSourcingMappingDialog,
     type SavedLiveSourcingMapping,
 } from "@/components/orders/live-sourcing-mapping-dialog";
-import { MARKET_BADGE_CLASSES, MARKET_LABELS, ORDER_STATUS_LABELS, SOURCING_LIFE_STATUS_LABELS } from "@/lib/constants/orders";
-import { getSourcingProgressViewMeta, hasCompletedSourcingPurchase, resolveSourcingProgressStage } from "@/lib/sourcing-progress";
+import { OrderHistoryDialog } from "@/components/orders/order-history-dialog";
+import {
+    hasCompletedMarketShipping,
+    hasStartedDomesticShipping,
+    isDirectDeliveryEligible,
+    ShippingProcessDialog,
+    type ShippingProcessMethod,
+} from "@/components/orders/shipping-process-dialog";
+import { MARKET_ABBREVIATIONS, MARKET_BADGE_CLASSES, MARKET_LABELS, ORDER_STATUS_LABELS, SOURCING_LIFE_STATUS_LABELS } from "@/lib/constants/orders";
+import { getDeliveryHistoryView } from "@/lib/delivery-history";
+import { calculateOrderMargin } from "@/lib/order-margin";
+import { getOrderShippingInformation } from "@/lib/order-shipping-information";
+import { getOrderProgressLabel } from "@/lib/order-progress-status";
+import {
+    canRestartSourcingAfterRefund,
+    getSourcingRefundAvailability,
+    isSourcingRefundActive,
+} from "@/lib/sourcing-refund";
+import {
+    getSourcingProgressViewMeta,
+    hasCompletedSourcingPurchase,
+} from "@/lib/sourcing-progress";
 import { cn } from "@/lib/utils";
-import { Order, Recipient, SourcingForwarderSelection, SourcingLifeMatch, SourcingProgressStage } from "@/types/order";
+import { Order, Recipient, SourcingForwarderSelection, SourcingLifeMatch } from "@/types/order";
 
 export interface OrderColumnActions {
     onOpenSourcing: (order: Order) => void;
@@ -30,21 +51,23 @@ export interface OrderColumnActions {
     onSaveSourcingMatch: (order: Order, match: SourcingLifeMatch) => void;
     onCreateSourcingPaymentWait: (order: Order, match: SourcingLifeMatch, forwarder: SourcingForwarderSelection) => void;
     onCompleteSourcingPayment: (order: Order, match: SourcingLifeMatch) => void;
-    onCompleteManualPurchase: (order: Order, invoice: ManualPurchaseInvoice) => void;
+    onCompleteManualPurchase: (order: Order, purchase: ManualPurchaseDraft) => void;
     onSourcingAndAcceptOrder: (order: Order, match: SourcingLifeMatch) => void;
     onAcceptOrder: (order: Order) => void;
     onCancelOrder: (order: Order, intent: SellerCancelIntent) => boolean | Promise<boolean>;
     onApproveCancelClaim: (order: Order) => void;
     onRejectCancelClaim: (order: Order) => void;
-    onDispatchDirectDelivery: (order: Order) => void;
-    onSendInvoice: (order: Order, carrier?: string, trackingNumber?: string) => void;
+    onProcessShipping: (order: Order, method?: ShippingProcessMethod, overseasTrackingNumber?: string) => void | Promise<void>;
+    getShippingProcessDefault?: (order: Order) => ShippingProcessMethod;
     onSaveInvoice: (order: Order, carrier: string, trackingNumber: string) => void;
     onSaveRecipientInfo: (order: Order, recipient: Recipient) => void;
+    onRestartSourcingAfterRefund: (order: Order) => void;
 }
 
-interface ManualPurchaseInvoice {
-    carrier: string;
-    trackingNumber: string;
+interface ManualPurchaseDraft {
+    method: ShippingProcessMethod;
+    carrier?: string;
+    trackingNumber?: string;
 }
 
 const progressStatus = (order: Order) => order.previousStatus ?? order.status;
@@ -81,16 +104,16 @@ function ProductImageDialog({ order }: { order: Order }) {
 
     return (
         <>
-            <button type="button" className="relative h-10 w-10 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm transition hover:border-sky-300 hover:ring-2 hover:ring-sky-100" onClick={() => setOpen(true)}>
+            <Button type="button" variant="outline" size="icon" className="relative h-10 w-10 overflow-hidden rounded-md p-0 shadow-sm transition hover:ring-2 hover:ring-ring" onClick={() => setOpen(true)}>
                 <Image src={order.product.thumbnail} alt={order.product.name} fill sizes="48px" className="object-cover" />
-            </button>
+            </Button>
             <Dialog open={open} onOpenChange={setOpen}>
                 <DialogContent className="max-w-xl">
                     <DialogHeader>
                         <DialogTitle>이미지 크게 보기</DialogTitle>
                         <DialogDescription>{order.product.name}</DialogDescription>
                     </DialogHeader>
-                    <div className="relative aspect-square overflow-hidden rounded-md border bg-white">
+                    <div className="relative aspect-square overflow-hidden rounded-md border bg-card">
                         <Image src={order.product.thumbnail} alt={order.product.name} fill sizes="560px" className="object-contain" />
                     </div>
                     <DialogFooter>
@@ -110,16 +133,16 @@ function ProductInfoCell({ order }: { order: Order }) {
             <ProductImageDialog order={order} />
             <div className="min-w-0 space-y-1">
                 {order.product.marketLink ? (
-                    <a className="line-clamp-2 text-[13px] font-semibold leading-4 text-slate-900 hover:text-sky-700 hover:underline" href={order.product.marketLink} target="_blank" rel="noopener noreferrer">
+                    <a className="line-clamp-2 text-sm font-semibold leading-4 text-foreground hover:text-foreground hover:underline" href={order.product.marketLink} target="_blank" rel="noopener noreferrer">
                         {order.product.name}
                         <ExternalLink className="ml-1 inline h-3 w-3" />
                     </a>
                 ) : (
-                    <div className="line-clamp-2 text-[13px] font-semibold leading-4 text-slate-900">{order.product.name}</div>
+                    <div className="line-clamp-2 text-sm font-semibold leading-4 text-foreground">{order.product.name}</div>
                 )}
-                <div className="line-clamp-1 text-xs text-slate-500">{order.product.optionName}</div>
-                <div className="text-[11px] font-medium text-slate-500">수량 {order.product.quantity}</div>
-                <div className="inline-flex max-w-full items-center gap-1 rounded bg-slate-50 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">
+                <div className="line-clamp-1 text-xs text-muted-foreground">{order.product.optionName}</div>
+                <div className="text-xs font-medium text-muted-foreground">수량 {order.product.quantity}</div>
+                <div className="inline-flex max-w-full items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs font-semibold text-muted-foreground">
                     <span className="shrink-0">마켓 주문번호 :</span>
                     <span className="truncate font-mono">{order.marketOrderId}</span>
                 </div>
@@ -128,195 +151,102 @@ function ProductInfoCell({ order }: { order: Order }) {
     );
 }
 
-function MarketAccountCell({ order }: { order: Order }) {
+function MarginInfoCell({ order }: { order: Order }) {
+    const margin = calculateOrderMargin(order);
+    const formatWon = (value: number) => `${Math.abs(value).toLocaleString()}원`;
+    const signedWon = (value: number) => `${value < 0 ? "-" : ""}${formatWon(value)}`;
+
     return (
-        <div className="min-w-0 space-y-1">
-            <div className={cn("inline-flex max-w-full truncate rounded px-1.5 py-0.5 text-[11px] font-semibold", MARKET_BADGE_CLASSES[order.marketType])}>{MARKET_LABELS[order.marketType]}</div>
-            <div className="truncate text-xs leading-4 text-slate-600">{order.storeName}</div>
+        <div
+            className="min-w-0 space-y-1.5 text-xs tabular-nums"
+            title="마진금 = 결제금액 - 매칭·결제 상품가격"
+        >
+            <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">결제금액</span>
+                <span className="font-bold text-foreground">{formatWon(order.paymentPrice)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-2 border-t border-border pt-1.5">
+                <span className="text-muted-foreground">마진율</span>
+                {margin ? (
+                    <Badge
+                        variant="outline"
+                        className={cn(
+                            "h-5 px-1.5 font-bold tabular-nums",
+                            margin.marginAmount < 0 && "border-destructive/40 text-destructive",
+                        )}
+                    >
+                        {margin.marginRate.toFixed(1)}%
+                    </Badge>
+                ) : <span className="font-semibold text-muted-foreground">-</span>}
+            </div>
+            <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">마진금</span>
+                <span className={cn("font-extrabold", margin?.marginAmount !== undefined && margin.marginAmount < 0 ? "text-destructive" : "text-foreground")}>
+                    {margin ? signedWon(margin.marginAmount) : "-"}
+                </span>
+            </div>
         </div>
     );
 }
 
-function OrderDateCell({ value }: { value: string }) {
-    const [date, time] = value.split(" ");
+function OrderDateCell({ order }: { order: Order }) {
+    const [date, time] = order.orderDate.split(" ");
 
     return (
-        <div className="space-y-0.5 text-xs tabular-nums">
-            <div className="font-medium text-slate-800">{date}</div>
-            <div className="font-mono text-[11px] text-slate-500">{time ?? "-"}</div>
+        <div className="min-w-0 space-y-1.5 text-xs tabular-nums">
+            <div className="space-y-0.5">
+                <div className="font-medium text-foreground">{date}</div>
+                <div className="font-mono text-xs text-muted-foreground">{time ?? "-"}</div>
+            </div>
+            <div className="flex min-w-0 items-center gap-1.5 border-t border-border pt-1.5">
+                <span
+                    className={cn(
+                        "inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded px-1 text-[10px] font-extrabold leading-none",
+                        MARKET_BADGE_CLASSES[order.marketType],
+                    )}
+                    title={MARKET_LABELS[order.marketType]}
+                >
+                    {MARKET_ABBREVIATIONS[order.marketType]}
+                </span>
+                <span className="min-w-0 truncate font-semibold text-foreground" title={order.storeName}>{order.storeName}</span>
+            </div>
         </div>
     );
 }
-
-const SOURCING_STAGE_BADGES: Record<SourcingProgressStage, { label: string; className: string; linked: boolean }> = {
-    MATCH_REQUIRED: { label: "소싱필요", className: "border-amber-200 bg-amber-50 text-amber-700", linked: false },
-    MATCH_PENDING_REVIEW: { label: "소싱 검증대기", className: "border-orange-200 bg-orange-50 text-orange-700", linked: false },
-    MATCHED: { label: "소싱완료", className: "border-lime-200 bg-lime-50 text-lime-700", linked: false },
-    PAYMENT_WAITING: { label: "결제대기", className: "border-amber-200 bg-amber-50 text-amber-700", linked: false },
-    EXTERNAL_PURCHASE: { label: "결제완료", className: "border-emerald-200 bg-emerald-50 text-emerald-700", linked: false },
-    SOURCED: { label: "결제완료", className: "border-emerald-200 bg-emerald-50 text-emerald-700", linked: true },
-    CHINA_SHIPPING: { label: "중국배송중", className: "border-indigo-200 bg-indigo-50 text-indigo-700", linked: true },
-    CUSTOMS_CLEARANCE: { label: "통관 중", className: "border-violet-200 bg-violet-50 text-violet-700", linked: true },
-    DOMESTIC_SHIPPING: { label: "국내 배송중", className: "border-sky-200 bg-sky-50 text-sky-700", linked: true },
-    DELIVERED: { label: "배송완료", className: "border-slate-200 bg-slate-100 text-slate-700", linked: true },
-};
 
 function SourcingLifeInfoCell({ order }: { order: Order }) {
-    const stageCode = resolveSourcingProgressStage(order);
-    const stage = SOURCING_STAGE_BADGES[stageCode];
-    const badgeClassName = cn("h-7 rounded-md px-2 text-[11px] font-semibold", stage.className);
-    const marketStatuses = [
-        order.marketOrderStatus === "CANCEL_REQUESTED"
-            ? { label: "마켓 취소요청", className: "border-red-200 bg-red-50 text-red-700" }
-            : undefined,
-        order.marketOrderStatus === "PURCHASE_DECIDED"
-            ? { label: "구매확정", className: "border-emerald-200 bg-emerald-50 text-emerald-700" }
-            : undefined,
-    ].filter((status): status is { label: string; className: string } => Boolean(status));
-
-    if (order.status === "ON_HOLD") {
-        return marketStatuses.length > 0 ? (
-            <div className="flex flex-col items-start gap-1">
-                {marketStatuses.map((status) => (
-                    <Badge key={status.label} variant="outline" className={cn("h-6 px-1.5 text-[10px] font-semibold", status.className)}>{status.label}</Badge>
-                ))}
-            </div>
-        ) : null;
-    }
-
-    const stageBadge = stage.linked && order.sourcingLifeOrderId ? (
-        <Badge asChild variant="outline" className={cn(badgeClassName, "transition hover:border-sky-300 hover:bg-sky-100 hover:text-sky-700")}>
-            <a
-                href={`/sourcing-life-order-detail.html?orderId=${encodeURIComponent(order.sourcingLifeOrderId)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="소싱라이프 주문내역 보기"
-                aria-label={`소싱라이프 주문내역 보기 ${order.sourcingLifeOrderId}`}
-            >
-                {stage.label}
-            </a>
-        </Badge>
-    ) : (
-        <Badge variant="outline" className={badgeClassName}>{stage.label}</Badge>
-    );
-
     return (
-        <div className="flex flex-col items-start gap-1">
-            {stageBadge}
-            {marketStatuses.map((status) => (
-                <Badge key={status.label} variant="outline" className={cn("h-6 px-1.5 text-[10px] font-semibold", status.className)}>{status.label}</Badge>
-            ))}
-        </div>
+        <Badge variant="outline" className="h-7 rounded-md border-border bg-muted px-2 text-xs font-semibold text-foreground">
+            {getOrderProgressLabel(order)}
+        </Badge>
     );
 }
 
 function DeliveryInfoCell({ order, actions }: { order: Order; actions: OrderColumnActions }) {
     const customs = customsState(order.recipient.personalCustomsCode);
-    const [open, setOpen] = useState(false);
-    const [name, setName] = useState(order.recipient.name);
-    const [phone, setPhone] = useState(order.recipient.phone);
-    const [zipCode, setZipCode] = useState(order.recipient.zipCode ?? "");
-    const [address, setAddress] = useState(order.recipient.address);
-    const [detailAddress, setDetailAddress] = useState(order.recipient.detailAddress ?? "");
-    const [deliveryMessage, setDeliveryMessage] = useState(order.recipient.deliveryMessage ?? "");
-    const [customsCode, setCustomsCode] = useState(order.recipient.personalCustomsCode ?? "");
-    const normalizedCode = customsCode.trim().toUpperCase();
-    const editorCustoms = customsState(normalizedCode);
-    const canSave = Boolean(name.trim() && phone.trim() && address.trim() && /^P\d{12}$/.test(normalizedCode));
-
-    const openEditor = () => {
-        setName(order.recipient.name);
-        setPhone(order.recipient.phone);
-        setZipCode(order.recipient.zipCode ?? "");
-        setAddress(order.recipient.address);
-        setDetailAddress(order.recipient.detailAddress ?? "");
-        setDeliveryMessage(order.recipient.deliveryMessage ?? "");
-        setCustomsCode(order.recipient.personalCustomsCode ?? "");
-        setOpen(true);
-    };
-
-    const saveRecipientInfo = () => {
-        if (!canSave) {
-            toast.info("수령인, 연락처, 주소, 개인통관부호를 확인하세요.");
-            return;
-        }
-
-        actions.onSaveRecipientInfo(order, {
-            name: name.trim(),
-            phone: phone.trim(),
-            zipCode: zipCode.trim() || undefined,
-            address: address.trim(),
-            detailAddress: detailAddress.trim() || undefined,
-            deliveryMessage: deliveryMessage.trim() || undefined,
-            personalCustomsCode: normalizedCode,
-        });
-        setOpen(false);
-    };
 
     return (
         <div className="min-w-0 space-y-1 text-xs">
-            <div className="truncate font-semibold text-slate-900">{order.recipient.name}</div>
-            <div className="truncate font-mono text-[11px] text-slate-500">{order.recipient.phone}</div>
-            <div className="truncate leading-4 text-slate-600">{[order.recipient.zipCode, order.recipient.address, order.recipient.detailAddress].filter(Boolean).join(" ")}</div>
-            <div className="flex min-w-0 items-center gap-1.5 border-t border-slate-100 pt-1">
-                <span className="truncate font-mono text-[11px] text-slate-700">{order.recipient.personalCustomsCode ?? "-"}</span>
+            <div className="truncate font-semibold text-foreground">{order.recipient.name}</div>
+            <div className="truncate font-mono text-xs text-muted-foreground">{order.recipient.phone}</div>
+            <div className="flex min-w-0 items-center gap-1.5 border-t border-border pt-1">
                 <Badge
                     variant="outline"
                     className={cn(
-                        "shrink-0 text-[10px]",
+                        "shrink-0 text-xs",
                         customs === "통관부호 일치"
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                            : "border-amber-200 bg-amber-50 text-amber-700",
+                            ? "border-border bg-muted text-foreground"
+                            : "border-border bg-muted text-foreground",
                     )}
                 >
                     {customs}
                 </Badge>
-                <Button size="sm" variant="outline" className="ml-auto h-6 shrink-0 border-slate-200 bg-white px-2 text-[11px] shadow-none" onClick={openEditor}>
-                    수정
-                </Button>
+                <RecipientEditDialog
+                    order={order}
+                    onSaveRecipientInfo={actions.onSaveRecipientInfo}
+                    className="ml-auto h-6 shrink-0"
+                />
             </div>
-            <Dialog open={open} onOpenChange={setOpen}>
-                <DialogContent className="max-w-lg">
-                    <DialogHeader>
-                        <DialogTitle>배송정보 수정</DialogTitle>
-                        <DialogDescription>수령인 배송정보와 개인통관부호를 함께 수정합니다.</DialogDescription>
-                    </DialogHeader>
-                    <div className="grid gap-3">
-                        <div className="grid grid-cols-2 gap-2">
-                            <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="수령인명" />
-                            <Input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="수령인 연락처" />
-                        </div>
-                        <Input value={zipCode} onChange={(event) => setZipCode(event.target.value)} placeholder="우편번호" />
-                        <Input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="주소" />
-                        <Input value={detailAddress} onChange={(event) => setDetailAddress(event.target.value)} placeholder="상세주소" />
-                        <Input value={deliveryMessage} onChange={(event) => setDeliveryMessage(event.target.value)} placeholder="배송메시지" />
-                        <Input
-                            value={customsCode}
-                            onChange={(event) => setCustomsCode(event.target.value.toUpperCase())}
-                            placeholder="개인통관부호 P123456789012"
-                            className="font-mono"
-                        />
-                        <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                            <div className="text-xs text-slate-600">개인통관부호 상태</div>
-                            <Badge
-                                variant="outline"
-                                className={cn(
-                                    "text-[11px]",
-                                    editorCustoms === "통관부호 일치"
-                                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                        : "border-amber-200 bg-amber-50 text-amber-700",
-                                )}
-                            >
-                                {editorCustoms}
-                            </Badge>
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setOpen(false)}>취소</Button>
-                        <Button disabled={!canSave} onClick={saveRecipientInfo}>저장</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </div>
     );
 }
@@ -367,24 +297,24 @@ function ClaimActionDialog({ order, actions, variant = "cell" }: { order: Order;
                     </DialogHeader>
                     <div className="grid gap-2 sm:grid-cols-2">
                         {rows.map(([label, value]) => (
-                            <div key={label} className="rounded-md border bg-slate-50 px-3 py-2 text-sm">
-                                <div className="text-xs text-slate-500">{label}</div>
-                                <div className="mt-1 break-words font-medium text-slate-900">{value}</div>
+                            <div key={label} className="rounded-md border bg-muted px-3 py-2 text-sm">
+                                <div className="text-xs text-muted-foreground">{label}</div>
+                                <div className="mt-1 break-words font-medium text-foreground">{value}</div>
                             </div>
                         ))}
                     </div>
                     {isCancelClaim ? (
-                        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                        <div className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground">
                             현재 진행단계와 소싱라이프 결제/송장 여부를 확인한 뒤 취소승인 또는 취소거부를 선택해 마켓에 전송합니다.
                         </div>
                     ) : (
-                        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                        <div className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground">
                             현재 진행단계와 주문 정보를 확인합니다. 반품/교환의 승인, 회수, 재발송 처리는 다음 클레임 처리 단계에서 확장합니다.
                         </div>
                     )}
                     <DialogFooter>
                         {isCancelClaim && isProcessed && (
-                            <Badge variant="outline" className="mr-auto border-emerald-200 bg-emerald-50 text-emerald-700">
+                            <Badge variant="outline" className="mr-auto border-border bg-muted text-foreground">
                                 처리완료
                             </Badge>
                         )}
@@ -405,159 +335,187 @@ function ClaimActionDialog({ order, actions, variant = "cell" }: { order: Order;
     );
 }
 
-function InvoiceInlineInput({
-    order,
-    carrier,
-    trackingNumber,
-    onCarrierChange,
-    onTrackingNumberChange,
-    onSaveInvoice,
-}: {
-    order: Order;
-    carrier: string;
-    trackingNumber: string;
-    onCarrierChange: (carrier: string) => void;
-    onTrackingNumberChange: (trackingNumber: string) => void;
-    onSaveInvoice: OrderColumnActions["onSaveInvoice"];
-}) {
-    const lastSavedRef = useRef(`${order.domesticInvoice?.carrier ?? ""}:${order.domesticInvoice?.trackingNumber ?? ""}`);
-    const canEdit = order.status === "READY_TO_SHIP";
-    const shouldAutoSave = order.status === "READY_TO_SHIP";
+function InvoiceInfoCell({ order }: { order: Order }) {
+    const shippingInformation = getOrderShippingInformation(order);
+    const domesticInvoice = shippingInformation.domesticTrackingNumber
+        ? `${shippingInformation.domesticCarrier ?? "택배사 미확인"} ${shippingInformation.domesticTrackingNumber}`
+        : "-";
 
-    const saveIfReady = (nextCarrier = carrier, nextTrackingNumber = trackingNumber) => {
-        const normalizedTrackingNumber = nextTrackingNumber.trim();
-        const nextSavedKey = `${nextCarrier}:${normalizedTrackingNumber}`;
+    return (
+        <div className="min-w-0 space-y-2 text-xs">
+            <div className="grid grid-cols-[82px_minmax(0,1fr)] items-center gap-2">
+                <span className="font-semibold text-muted-foreground">국내 송장번호</span>
+                <span className="truncate whitespace-nowrap font-mono font-semibold text-foreground" title={domesticInvoice}>
+                    {domesticInvoice}
+                </span>
+            </div>
+            {shippingInformation.marketProcessingLabel && (
+                <Badge variant="outline" className="w-fit">
+                    {shippingInformation.marketProcessingLabel}
+                </Badge>
+            )}
+            <div className="grid grid-cols-[82px_minmax(0,1fr)] items-center gap-2">
+                <span className="font-semibold text-muted-foreground">중국 송장번호</span>
+                <span className="truncate font-mono text-foreground" title={shippingInformation.chinaTrackingNumber}>
+                    {shippingInformation.chinaTrackingNumber || "-"}
+                </span>
+            </div>
+        </div>
+    );
+}
 
-        if (!shouldAutoSave || !normalizedTrackingNumber || lastSavedRef.current === nextSavedKey) return;
+function InvoiceEditButton({ order, actions }: { order: Order; actions: OrderColumnActions }) {
+    const [open, setOpen] = useState(false);
+    const [secondaryLoginVerified, setSecondaryLoginVerified] = useState(false);
+    const [carrier, setCarrier] = useState(order.domesticInvoice?.carrier ?? "CJ대한통운");
+    const [trackingNumber, setTrackingNumber] = useState(order.domesticInvoice?.trackingNumber ?? "");
+    const pendingInvoiceEntry = order.status === "READY_TO_SHIP"
+        && order.sourcingProgressStage === "EXTERNAL_PURCHASE";
 
-        lastSavedRef.current = nextSavedKey;
-        onSaveInvoice(order, nextCarrier, normalizedTrackingNumber);
+    const openEditor = () => {
+        setSecondaryLoginVerified(false);
+        setCarrier(order.domesticInvoice?.carrier ?? "CJ대한통운");
+        setTrackingNumber(order.domesticInvoice?.trackingNumber ?? "");
+        setOpen(true);
     };
 
-    if (!canEdit) {
-        return (
-            <div className="space-y-1.5 text-xs">
-                <div className="font-semibold text-slate-900">{order.domesticInvoice?.carrier || "-"}</div>
-                <div className="mt-0.5 font-mono text-sky-700">{order.domesticInvoice?.trackingNumber || "-"}</div>
-            </div>
-        );
-    }
+    const save = () => {
+        if (!trackingNumber) return;
+        actions.onSaveInvoice(order, carrier, trackingNumber);
+        setOpen(false);
+    };
 
     return (
-        <div className="grid grid-cols-[minmax(74px,0.9fr)_minmax(74px,1fr)] gap-1">
-            <Select
-                value={carrier}
-                onValueChange={(nextCarrier) => {
-                    onCarrierChange(nextCarrier);
-                    saveIfReady(nextCarrier, trackingNumber);
+        <>
+            <Button
+                size="sm"
+                variant="outline"
+                className="h-[29px] w-full whitespace-nowrap border-border bg-card px-1.5 text-xs text-foreground shadow-none hover:bg-muted"
+                onClick={openEditor}
+            >
+                운송장 수정
+            </Button>
+            <Dialog open={open} onOpenChange={setOpen}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>운송장 수정</DialogTitle>
+                        <DialogDescription>
+                            {pendingInvoiceEntry
+                                ? "직접구매 완료 후 확인된 국내 택배사와 송장번호를 저장합니다. 배송중 처리는 별도로 진행합니다."
+                                : "국내배송 시작이 확인된 주문의 기존 국내송장을 마켓 판매자센터에 반영합니다."}
+                        </DialogDescription>
+                    </DialogHeader>
+                    {pendingInvoiceEntry ? (
+                        <div className="grid grid-cols-[150px_1fr] gap-2">
+                            <Select value={carrier} onValueChange={setCarrier}>
+                                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="CJ대한통운">CJ대한통운</SelectItem>
+                                    <SelectItem value="롯데택배">롯데택배</SelectItem>
+                                    <SelectItem value="한진택배">한진택배</SelectItem>
+                                    <SelectItem value="우체국택배">우체국택배</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <Input value={trackingNumber} onChange={(event) => setTrackingNumber(event.target.value.replace(/\D/g, ""))} placeholder="국내송장번호" inputMode="numeric" className="h-9 font-mono" />
+                        </div>
+                    ) : (
+                        <>
+                            <div className="rounded-md border border-border bg-muted/50 px-3 py-3 text-sm">
+                                <div className="text-xs font-semibold text-muted-foreground">프로그램에 수집된 국내송장</div>
+                                <div className="mt-2 flex items-center justify-between gap-3">
+                                    <span className="font-semibold text-foreground">{carrier}</span>
+                                    <span className="font-mono font-semibold text-foreground">{trackingNumber}</span>
+                                </div>
+                            </div>
+                            <div className="flex gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                                <ShieldCheck className="mt-0.5 size-4 shrink-0" />
+                                <span>마켓 API로 수정하지 않습니다. 2차 로그인 인증이 완료된 판매자센터 세션에서 크롤링으로 직접전달·해외기타배송 정보를 실제 송장으로 변경합니다.</span>
+                            </div>
+                            {secondaryLoginVerified ? <Badge variant="outline" className="w-fit">2차 로그인 인증 완료 · 크롤링 실행 준비</Badge> : null}
+                        </>
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setOpen(false)}>취소</Button>
+                        {pendingInvoiceEntry ? (
+                            <Button disabled={!trackingNumber.trim()} onClick={save}>운송장 수정</Button>
+                        ) : secondaryLoginVerified ? (
+                            <Button disabled={!trackingNumber} onClick={save}>크롤링으로 운송장 수정</Button>
+                        ) : (
+                            <Button onClick={() => {
+                                if (order.dataSource === "api") {
+                                    toast.info("2차 로그인 인증·판매자센터 크롤링 커넥터가 연결된 뒤 실행할 수 있습니다.");
+                                    return;
+                                }
+                                setSecondaryLoginVerified(true);
+                                toast.success("더미 2차 로그인 인증을 완료했습니다.");
+                            }}>2차 로그인 인증</Button>
+                        )}
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
+    );
+}
+
+function ShippingProcessButton({ order, actions }: { order: Order; actions: OrderColumnActions }) {
+    const [open, setOpen] = useState(false);
+    const configuredMethod = actions.getShippingProcessDefault?.(order) ?? "DELIVERY";
+
+    const processExistingDispatch = () => {
+        void actions.onProcessShipping(order);
+    };
+
+    return (
+        <>
+            <Button
+                size="sm"
+                className="h-[29px] w-full whitespace-nowrap bg-primary px-1.5 text-xs shadow-sm hover:bg-primary"
+                onClick={() => {
+                    if (hasCompletedMarketShipping(order)) {
+                        processExistingDispatch();
+                        return;
+                    }
+                    setOpen(true);
                 }}
             >
-                <SelectTrigger size="sm" className="!h-8 !min-h-8 w-full px-2 !py-0 text-[11px] leading-none">
-                    <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="CJ대한통운">CJ대한통운</SelectItem>
-                    <SelectItem value="롯데택배">롯데택배</SelectItem>
-                    <SelectItem value="한진택배">한진택배</SelectItem>
-                    <SelectItem value="우체국택배">우체국택배</SelectItem>
-                </SelectContent>
-            </Select>
-            <Input
-                value={trackingNumber}
-                onChange={(event) => {
-                    const nextTrackingNumber = event.target.value.replace(/\D/g, "");
-                    onTrackingNumberChange(nextTrackingNumber);
-                    saveIfReady(carrier, nextTrackingNumber);
-                }}
-                onBlur={() => saveIfReady()}
-                onKeyDown={(event) => {
-                    if (event.key === "Enter") saveIfReady();
-                }}
-                placeholder="송장번호"
-                inputMode="numeric"
-                className="!h-8 !min-h-8 w-full px-2 !py-0 font-mono text-[11px] leading-none"
+                배송중 처리
+            </Button>
+            <ShippingProcessDialog
+                open={open}
+                orders={[order]}
+                onOpenChange={setOpen}
+                onConfirm={(method, overseasTrackingNumber) => actions.onProcessShipping(order, method, overseasTrackingNumber)}
+                resolveMethod={() => configuredMethod}
             />
-        </div>
+        </>
     );
 }
 
-function InvoiceActionsCell({ order, actions }: { order: Order; actions: OrderColumnActions }) {
-    const invoiceKey = `${order.domesticInvoice?.carrier ?? ""}:${order.domesticInvoice?.trackingNumber ?? ""}`;
-    const [syncedInvoiceKey, setSyncedInvoiceKey] = useState(invoiceKey);
-    const [carrier, setCarrier] = useState(order.domesticInvoice?.carrier || "CJ대한통운");
-    const [trackingNumber, setTrackingNumber] = useState(order.domesticInvoice?.trackingNumber || "");
-
-    if (syncedInvoiceKey !== invoiceKey) {
-        setSyncedInvoiceKey(invoiceKey);
-        setCarrier(order.domesticInvoice?.carrier || "CJ대한통운");
-        setTrackingNumber(order.domesticInvoice?.trackingNumber || "");
-    }
-
-    return (
-        <div className="space-y-1.5">
-            <InvoiceInlineInput
-                order={order}
-                carrier={carrier}
-                trackingNumber={trackingNumber}
-                onCarrierChange={setCarrier}
-                onTrackingNumberChange={setTrackingNumber}
-                onSaveInvoice={actions.onSaveInvoice}
-            />
-            {order.marketDeliveryMethod === "DIRECT_DELIVERY" && (
-                <Badge variant="outline" className="border-violet-200 bg-violet-50 text-[10px] font-semibold text-violet-700">직접전달</Badge>
-            )}
-        </div>
-    );
+export function getSourcingActionLabel(
+    order: Pick<Order, "status" | "sourcingLifeSyncStatus" | "sourcingProgressStage">,
+    placement: OrderActionPlacement = "detail",
+) {
+    if (order.status === "NEW") return "매칭하기";
+    if (placement === "list") return "소싱하기";
+    if (order.sourcingLifeSyncStatus === "PAYMENT_READY" || order.sourcingProgressStage === "PAYMENT_WAITING") return "결제하기";
+    return "소싱하기";
 }
 
-function SourcingButton({ order, actions }: { order: Order; actions: OrderColumnActions }) {
-    const [customsMismatchOpen, setCustomsMismatchOpen] = useState(false);
+function SourcingButton({ order, actions, placement }: { order: Order; actions: OrderColumnActions; placement: OrderActionPlacement }) {
+    const buttonLabel = getSourcingActionLabel(order, placement);
 
     if (order.dataSource === "api") {
         return <LiveSourcingMappingDialog
             order={order}
             onSaved={(mapping) => actions.onLiveSourcingMappingSaved(order, mapping)}
+            buttonLabel={buttonLabel}
         />;
-    }
-
-    const customsCodeValid = hasValidPersonalCustomsCode(order.recipient.personalCustomsCode);
-    const hasCustomsMismatch = order.status === "PREPARING" && !customsCodeValid;
-    const isPaymentWaiting = order.sourcingLifeSyncStatus === "PAYMENT_READY";
-    const buttonLabel = isPaymentWaiting ? "결제하기" : "소싱하기";
-
-    if (hasCustomsMismatch) {
-        return (
-            <>
-            <Button
-                size="sm"
-                variant="outline"
-                className="h-[29px] w-full whitespace-nowrap border-amber-300 bg-amber-50 px-1.5 text-[11px] text-amber-700 shadow-sm hover:bg-amber-100 hover:text-amber-800"
-                onClick={(event) => {
-                    event.stopPropagation();
-                    setCustomsMismatchOpen(true);
-                }}
-            >
-                {buttonLabel}
-            </Button>
-            <Dialog open={customsMismatchOpen} onOpenChange={setCustomsMismatchOpen}>
-                <DialogContent className="max-w-sm">
-                    <DialogHeader>
-                        <DialogTitle>통관부호 확인 필요</DialogTitle>
-                        <DialogDescription>개인통관부호가 일치해야 소싱라이프 결제를 진행할 수 있습니다. 배송정보에서 통관부호를 수정한 뒤 다시 시도하세요.</DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter>
-                        <Button onClick={() => setCustomsMismatchOpen(false)}>확인</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-            </>
-        );
     }
 
     return (
         <Button
             size="sm"
-            className="h-[29px] w-full whitespace-nowrap px-1.5 text-[11px] shadow-sm"
+            className="h-[29px] w-full whitespace-nowrap px-1.5 text-xs shadow-sm"
             onClick={(event) => {
                 event.stopPropagation();
                 actions.onOpenSourcing(order);
@@ -570,42 +528,43 @@ function SourcingButton({ order, actions }: { order: Order; actions: OrderColumn
 
 function ManualPurchaseButton({ order, actions }: { order: Order; actions: OrderColumnActions }) {
     const [open, setOpen] = useState(false);
-    const [carrier, setCarrier] = useState("CJ대한통운");
-    const [trackingNumber, setTrackingNumber] = useState("");
-    const normalizedTrackingNumber = trackingNumber.trim();
-    const hasInvoice = Boolean(normalizedTrackingNumber);
+    const configuredMethod = actions.getShippingProcessDefault?.(order) ?? "DELIVERY";
+    const configuredMethodLabel = configuredMethod === "DIRECT_DELIVERY"
+        ? "직접전달"
+        : configuredMethod === "OVERSEAS_OTHER_DELIVERY"
+            ? "해외기타배송"
+            : "송장입력";
 
     if (order.dataSource === "api") {
         return (
-            <Button size="sm" variant="outline" className="h-[29px] w-full px-1.5 text-[11px]" disabled title="실데이터 직접구매 국내송장 원장 API 연결 후 활성화됩니다.">
-                국내송장 등록 준비
+            <Button size="sm" variant="outline" className="h-[29px] w-full px-1.5 text-xs" disabled title="직접구매 주문의 배송정보 저장 기능은 현재 준비 중입니다.">
+                직접구매 배송처리
             </Button>
         );
     }
 
     const completeToWaiting = () => {
-        if (!hasInvoice) return;
-        actions.onCompleteManualPurchase(order, { carrier, trackingNumber: normalizedTrackingNumber });
+        actions.onCompleteManualPurchase(order, { method: configuredMethod });
         setOpen(false);
     };
 
     return (
         <>
-            <Button size="sm" variant="outline" className="h-[29px] w-full whitespace-nowrap border-slate-200 bg-white px-1.5 text-[10px] shadow-none hover:border-sky-200 hover:bg-sky-50" onClick={() => setOpen(true)}>
-                국내송장 등록
+            <Button size="sm" variant="outline" className="h-[29px] w-full whitespace-nowrap border-border bg-card px-1.5 text-xs shadow-none hover:border-border hover:bg-muted" onClick={() => setOpen(true)}>
+                직접구매 배송처리
             </Button>
             <Dialog open={open} onOpenChange={setOpen}>
-                <DialogContent className="max-w-md">
+                <DialogContent className="max-w-2xl">
                     <DialogHeader>
-                        <DialogTitle>직접구매 국내송장 등록</DialogTitle>
+                        <DialogTitle>직접구매 배송처리</DialogTitle>
                         <DialogDescription>
-                            소싱라이프에서 결제하지 않고 직접 구매한 주문의 국내송장을 등록합니다. 자동 배송중 처리 설정에 따라 발송대기 또는 배송중으로 이동합니다.
+                            직접구매 완료를 저장하고 발송대기로 이동합니다. 배송중 처리 방식은 마켓연동에서 설정한 스토어 기본값을 사용합니다.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-3">
-                        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-                            <div className="font-semibold text-slate-900">{order.product.name}</div>
-                            <div className="mt-1 grid gap-1 text-slate-600">
+                        <div className="rounded-md border border-border bg-muted px-3 py-2 text-xs">
+                            <div className="font-semibold text-foreground">{order.product.name}</div>
+                            <div className="mt-1 grid gap-1 text-muted-foreground">
                                 <div className="truncate">옵션: {order.product.optionName}</div>
                                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                                     <span>수량: {order.product.quantity}</span>
@@ -613,30 +572,19 @@ function ManualPurchaseButton({ order, actions }: { order: Order; actions: Order
                                 </div>
                             </div>
                         </div>
-                        <div className="grid grid-cols-[150px_1fr] gap-2">
-                            <Select value={carrier} onValueChange={setCarrier}>
-                                <SelectTrigger className="h-9">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="CJ대한통운">CJ대한통운</SelectItem>
-                                    <SelectItem value="롯데택배">롯데택배</SelectItem>
-                                    <SelectItem value="한진택배">한진택배</SelectItem>
-                                    <SelectItem value="우체국택배">우체국택배</SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <Input
-                                value={trackingNumber}
-                                onChange={(event) => setTrackingNumber(event.target.value.replace(/\D/g, ""))}
-                                placeholder="국내송장번호"
-                                inputMode="numeric"
-                                className="h-9 font-mono"
-                            />
+                        <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                            <div className="text-xs font-semibold text-muted-foreground">스토어 기본 배송중 처리 방식</div>
+                            <div className="mt-2 font-bold text-foreground">{configuredMethodLabel}</div>
+                            <div className="mt-1 text-xs leading-5 text-muted-foreground">이 화면에서는 방식을 변경하거나 운송장을 입력하지 않습니다.</div>
+                        </div>
+                        <div className="grid gap-2 rounded-lg border border-border bg-muted/40 p-3 text-xs sm:grid-cols-2">
+                            <div><span className="font-semibold text-foreground">내부 소싱</span><div className="mt-1 text-muted-foreground">직접구매 완료로 기록</div></div>
+                            <div><span className="font-semibold text-foreground">주문 상태</span><div className="mt-1 text-muted-foreground">발송대기로 이동</div></div>
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button className="w-full justify-center bg-sky-600 shadow-sm hover:bg-sky-700" disabled={!hasInvoice} onClick={completeToWaiting}>
-                            국내송장 등록
+                        <Button className="w-full justify-center bg-primary shadow-sm hover:bg-primary" onClick={completeToWaiting}>
+                            직접구매 배송처리
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -645,56 +593,269 @@ function ManualPurchaseButton({ order, actions }: { order: Order; actions: Order
     );
 }
 
+function DeliveryStatusButton({ order }: { order: Order }) {
+    const [open, setOpen] = useState(false);
+    const progress = getDeliveryHistoryView(order);
+
+    if (!progress) return null;
+
+    return (
+        <>
+            <Button
+                size="sm"
+                variant="outline"
+                className="h-[29px] w-full whitespace-nowrap border-border bg-muted px-1.5 text-xs text-foreground shadow-none hover:border-border hover:bg-muted hover:text-foreground"
+                onClick={() => setOpen(true)}
+            >
+                배송추적
+            </Button>
+            <Dialog open={open} onOpenChange={setOpen}>
+                <DialogContent className="sm:max-w-3xl">
+                    <DialogHeader>
+                        <DialogTitle>배송추적</DialogTitle>
+                        <DialogDescription>{order.product.name}의 현재까지 확인된 배송·반품 이력을 확인합니다.</DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-5">
+                        <div className="rounded-lg border border-border bg-muted p-4">
+                            <div className="flex items-start gap-3">
+                                <Truck className="mt-0.5 size-5 shrink-0 text-foreground" />
+                                <div>
+                                    <div className="text-xs font-bold text-foreground">현재 배송상태 · {progress.label}</div>
+                                    <div className="mt-1 font-black text-foreground">{progress.title}</div>
+                                    <p className="mt-2 text-sm leading-6 text-foreground">{progress.description}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid gap-2 sm:grid-cols-3">
+                            {progress.milestones.map((step) => {
+                                const completed = step.state === "COMPLETED";
+                                const current = step.state === "CURRENT";
+                                return (
+                                    <div
+                                        key={step.id}
+                                        className={cn(
+                                            "rounded-md border p-3",
+                                            current ? "border-border bg-muted" : "border-border bg-card",
+                                        )}
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            {completed
+                                                ? <CheckCircle2 className="size-4 text-foreground" />
+                                                : <PackageCheck className={cn("size-4", current ? "text-foreground" : "text-muted-foreground")} />}
+                                            <span className="text-sm font-extrabold text-foreground">{step.label}</span>
+                                        </div>
+                                        <div className={cn(
+                                            "mt-2 text-xs font-bold",
+                                            completed ? "text-foreground" : current ? "text-foreground" : "text-muted-foreground",
+                                        )}>
+                                            {completed ? "완료" : current ? "진행 중" : "예정"}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        <div>
+                            <div className="mb-2 flex items-center justify-between gap-3">
+                                <div className="text-sm font-extrabold text-foreground">누적 배송 이력</div>
+                                <Badge variant="outline" className="border-border bg-muted text-xs text-foreground">
+                                    {progress.events.length}건
+                                </Badge>
+                            </div>
+                            {progress.events.length > 0 ? (
+                                <div className="overflow-hidden rounded-md border border-border">
+                                    {progress.events.map((event, index) => (
+                                        <div
+                                            key={event.id}
+                                            className={cn(
+                                                "grid gap-2 px-4 py-3 sm:grid-cols-[130px_minmax(0,1fr)]",
+                                                index > 0 && "border-t border-border",
+                                            )}
+                                        >
+                                            <div className="font-mono text-xs font-semibold text-muted-foreground">
+                                                {event.occurredAt || "일시 미제공"}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <Badge variant="outline" className="border-border bg-muted text-[11px] text-foreground">
+                                                        {event.flow === "OUTBOUND" ? "배송" : event.flow === "RETURN" ? "반품" : "교환"}
+                                                    </Badge>
+                                                    <span className="text-xs font-extrabold text-foreground">{event.label}</span>
+                                                </div>
+                                                {event.description ? (
+                                                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{event.description}</p>
+                                                ) : null}
+                                                {(event.location || event.carrier || event.trackingNumber) ? (
+                                                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-foreground">
+                                                        {event.location ? <span>{event.location}</span> : null}
+                                                        {event.carrier ? <span>{event.carrier}</span> : null}
+                                                        {event.trackingNumber ? <span className="font-mono">{event.trackingNumber}</span> : null}
+                                                    </div>
+                                                ) : null}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="rounded-md border border-dashed border-border bg-muted px-4 py-5 text-center text-xs text-muted-foreground">
+                                    현재 단계는 확인되었지만 연동사에서 상세 이벤트 일시를 제공하지 않았습니다.
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="grid overflow-hidden rounded-md border sm:grid-cols-2">
+                            <div className="border-b px-4 py-3 sm:border-b-0 sm:border-r">
+                                <div className="text-xs font-bold text-muted-foreground">마켓 주문번호</div>
+                                <div className="mt-1 break-all font-mono text-xs font-bold text-foreground">{order.marketOrderId}</div>
+                            </div>
+                            <div className="px-4 py-3">
+                                <div className="text-xs font-bold text-muted-foreground">국내 택배정보</div>
+                                <div className="mt-1 text-xs font-bold text-foreground">
+                                    {order.domesticInvoice
+                                        ? `${order.domesticInvoice.carrier} ${order.domesticInvoice.trackingNumber}`
+                                        : "연동된 국내 택배정보가 없습니다."}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <Button onClick={() => setOpen(false)}>확인</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
+    );
+}
+
+type ProcessActionOrder = Pick<Order, "status" | "marketType" | "marketDeliveryMethod" | "marketOrderStatus">
+    & Partial<Pick<Order,
+        | "sourcingLifeSyncStatus"
+        | "shippingProcessStarted"
+        | "sourcingProgressStage"
+        | "sourcingLifeOrderId"
+        | "sourcingRefund"
+        | "taoWorldPurchase"
+        | "previousStatus"
+        | "claimType"
+        | "claimStatus"
+        | "claimRequestedAt"
+        | "claimProcessedAt"
+        | "domesticInvoice"
+        | "sourcingLifeSyncedAt"
+        | "deliveryHistory"
+        | "recipient"
+        | "dataSource"
+    >>;
+
 export function getProcessActionAvailability(
-    order: Pick<Order, "status" | "marketType" | "marketDeliveryMethod" | "marketOrderStatus">
-        & Partial<Pick<Order, "sourcingLifeSyncStatus" | "sourcingProgressStage" | "sourcingLifeOrderId">>,
+    order: ProcessActionOrder,
 ) {
     const blocked = order.status === "ON_HOLD";
     const sourcingProgressView = getSourcingProgressViewMeta(order);
+    const deliveryProgressView = getDeliveryHistoryView(order);
     const paymentWaiting = sourcingProgressView?.stage === "PAYMENT_WAITING";
     const purchaseCompleted = hasCompletedSourcingPurchase(order);
     const paymentStateMismatch = ["READY_TO_SHIP", "SHIPPING", "DELIVERED"].includes(order.status) && !purchaseCompleted;
-    const canUseDirectDelivery = order.marketType === "naver" || order.marketType === "coupang";
-    const directDeliveryCompleted = order.marketDeliveryMethod === "DIRECT_DELIVERY" && order.marketOrderStatus === "DELIVERING";
-
+    const canUseDirectDelivery = isDirectDeliveryEligible(order);
+    const marketDispatchCompleted = order.marketOrderStatus === "DELIVERING"
+        || order.marketOrderStatus === "DELIVERED"
+        || order.marketOrderStatus === "PURCHASE_DECIDED";
+    const directDeliveryCompleted = order.marketDeliveryMethod === "DIRECT_DELIVERY" && marketDispatchCompleted;
+    const sourcingRefundAvailability = getSourcingRefundAvailability(order);
+    const sourcingRefundActive = isSourcingRefundActive(order.sourcingRefund);
+    const sourcingRefundBlocksShipping = sourcingRefundActive || order.sourcingRefund?.status === "REFUNDED";
+    const customsReady = order.status !== "PREPARING"
+        || !order.recipient
+        || hasValidPersonalCustomsCode(order.recipient.personalCustomsCode);
+    const hasDomesticInvoice = Boolean(order.domesticInvoice?.carrier && order.domesticInvoice.trackingNumber);
     return {
         canAccept: !blocked && order.status === "NEW",
-        canSource: !blocked && (order.status === "NEW" || (order.status === "PREPARING" && (!sourcingProgressView || paymentWaiting))),
+        canSource: !blocked && customsReady && (order.status === "NEW" || (order.status === "PREPARING" && (!sourcingProgressView || paymentWaiting))),
         canViewSourcingProgress: !blocked && Boolean(sourcingProgressView) && !paymentWaiting && purchaseCompleted,
         sourcingProgressView,
-        canCompleteManualPurchase: !blocked && order.status === "PREPARING" && !paymentWaiting && !purchaseCompleted,
+        canViewDeliveryProgress: !blocked && Boolean(deliveryProgressView) && purchaseCompleted,
+        deliveryProgressView,
+        canCompleteManualPurchase: !blocked && order.dataSource !== "api" && order.status === "PREPARING" && !paymentWaiting && !purchaseCompleted,
         canCancel: !blocked
-            && order.marketDeliveryMethod !== "DIRECT_DELIVERY"
+            && !marketDispatchCompleted
             && (order.status === "NEW" || order.status === "PREPARING" || order.status === "READY_TO_SHIP"),
-        canSendInvoice: !blocked && order.status === "READY_TO_SHIP" && purchaseCompleted,
+        canSendInvoice: !blocked
+            && !sourcingRefundBlocksShipping
+            && !marketDispatchCompleted
+            && (order.status === "READY_TO_SHIP" || order.status === "SHIPPING")
+            && purchaseCompleted
+            && hasDomesticInvoice,
+        canEditInvoice: !blocked
+            && (
+                (
+                    order.dataSource !== "api"
+                    && order.status === "READY_TO_SHIP"
+                    && purchaseCompleted
+                    && order.sourcingProgressStage === "EXTERNAL_PURCHASE"
+                )
+                || (
+                    order.status === "SHIPPING"
+                    && purchaseCompleted
+                    && hasDomesticInvoice
+                    && hasStartedDomesticShipping(order)
+                    && marketDispatchCompleted
+                    && (order.marketDeliveryMethod === "DIRECT_DELIVERY"
+                        || order.marketDeliveryMethod === "OVERSEAS_OTHER_DELIVERY")
+                )
+            ),
         canUseDirectDelivery,
         directDeliveryCompleted,
+        marketDispatchCompleted,
         paymentWaiting,
         purchaseCompleted,
         paymentStateMismatch,
-        canDispatchDirectDelivery: !blocked && !paymentWaiting && canUseDirectDelivery && !directDeliveryCompleted,
+        sourcingRefundAvailability,
+        sourcingRefundActive,
+        sourcingRefundBlocksShipping,
+        canDispatchDirectDelivery: !blocked
+            && !sourcingRefundBlocksShipping
+            && canUseDirectDelivery
+            && purchaseCompleted
+            && !marketDispatchCompleted
+            && ["PREPARING", "READY_TO_SHIP", "SHIPPING"].includes(order.status),
+        canCompleteMarketShipping: !blocked
+            && !sourcingRefundBlocksShipping
+            && order.status === "READY_TO_SHIP"
+            && purchaseCompleted
+            && marketDispatchCompleted,
+        canChooseShippingProcess: !blocked
+            && !sourcingRefundBlocksShipping
+            && purchaseCompleted
+            && ["PREPARING", "READY_TO_SHIP", "SHIPPING"].includes(order.status)
+            && (!marketDispatchCompleted || order.status === "READY_TO_SHIP"),
     };
 }
 
 export type OrderActionPlacement = "list" | "detail";
 
 export function getProcessActionVisibility(
-    order: Pick<Order, "status" | "marketType" | "marketDeliveryMethod" | "marketOrderStatus">
-        & Partial<Pick<Order, "sourcingLifeSyncStatus" | "sourcingProgressStage" | "sourcingLifeOrderId">>,
+    order: ProcessActionOrder,
     placement: OrderActionPlacement,
 ) {
     const availability = getProcessActionAvailability(order);
     const isDetail = placement === "detail";
+    const canProcessShipping = availability.canChooseShippingProcess;
 
     return {
         ...availability,
         showAccept: availability.canAccept,
         showSource: availability.canSource,
         showManualPurchase: isDetail && availability.canCompleteManualPurchase,
-        showDirectDelivery: isDetail && order.status === "PREPARING" && availability.canDispatchDirectDelivery,
-        showSendInvoice: availability.canSendInvoice && !availability.directDeliveryCompleted,
+        showShippingProcess: canProcessShipping && (isDetail || order.status === "READY_TO_SHIP"),
+        showInvoiceEdit: isDetail && availability.canEditInvoice,
         showProgressView: isDetail && availability.canViewSourcingProgress,
+        sourcingProgressActionLabel: availability.sourcingProgressView?.actionLabel,
+        showDeliveryStatus: isDetail && availability.canViewDeliveryProgress,
         showCancel: availability.canCancel && (isDetail || order.status !== "READY_TO_SHIP"),
+        showRestartSourcingAfterRefund: isDetail && canRestartSourcingAfterRefund(order),
     };
 }
 
@@ -724,88 +885,73 @@ export function OrderProcessActions({
         showSource,
         showManualPurchase,
         showCancel,
-        showSendInvoice,
-        showDirectDelivery,
+        showShippingProcess,
+        showInvoiceEdit,
         showProgressView,
+        showDeliveryStatus,
+        showRestartSourcingAfterRefund,
         sourcingProgressView,
+        sourcingProgressActionLabel,
         paymentStateMismatch,
     } = getProcessActionVisibility(order, placement);
-    const processResultLabel = getProcessResultLabel(order);
-
-    if (order.status === "CLAIM" && !processResultLabel) {
-        return <ClaimActionDialog order={order} actions={actions} />;
-    }
-
-    if (processResultLabel) {
-        return (
-            <Badge variant="outline" className={cn(
-                "h-7 rounded-md px-2 text-[11px] font-semibold",
-                processResultLabel === "처리보류" && "border-orange-200 bg-orange-50 text-orange-700",
-                processResultLabel === "주문취소" && "border-red-200 bg-red-50 text-red-700",
-                !["처리보류", "주문취소"].includes(processResultLabel) && "border-sky-200 bg-sky-50 text-sky-700",
-            )}>
-                {processResultLabel}
-            </Badge>
-        );
-    }
+    const isDetail = placement === "detail";
+    const processResultLabel = isDetail ? getProcessResultLabel(order) : undefined;
+    const showClaimAction = isDetail && order.status === "CLAIM" && !processResultLabel;
 
     if (paymentStateMismatch) {
-        return (
-            <Badge variant="outline" className="h-auto min-h-7 whitespace-normal border-amber-300 bg-amber-50 px-2 py-1 text-center text-[10px] font-semibold leading-4 text-amber-700">
-                결제상태 불일치
-            </Badge>
-        );
-    }
+        if (!isDetail) return null;
 
-    if (!showAccept && !showSource && !showManualPurchase && !showCancel && !showSendInvoice && !showProgressView && !showDirectDelivery) {
-        return placement === "detail" ? (
-            <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">
-                현재 단계에서 처리할 작업이 없습니다.
+        return (
+            <div className="flex flex-col items-stretch gap-1">
+                <Badge variant="outline" className="h-auto min-h-7 whitespace-normal border-border bg-muted px-2 py-1 text-center text-xs font-semibold leading-4 text-foreground">
+                    결제상태 불일치
+                </Badge>
+                <OrderHistoryDialog order={order} />
             </div>
-        ) : null;
+        );
     }
 
     return (
-        <div className={cn(placement === "detail" ? "grid gap-2 sm:grid-cols-2" : "flex flex-col items-stretch gap-1")}>
+        <div className={cn(placement === "detail" ? "flex w-full flex-col items-stretch gap-2" : "flex flex-col items-stretch gap-1")}>
+            {showClaimAction ? <ClaimActionDialog order={order} actions={actions} /> : null}
+            {processResultLabel ? (
+                <Badge variant="outline" className="flex h-[29px] w-full items-center justify-center rounded-md border-border bg-muted px-2 text-xs font-semibold text-foreground">
+                    {processResultLabel}
+                </Badge>
+            ) : null}
             {showAccept && (
-                <Button size="sm" className="h-[29px] w-full whitespace-nowrap px-1.5 text-[11px] shadow-sm" onClick={() => actions.onAcceptOrder(order)}>
+                <Button size="sm" className="h-[29px] w-full whitespace-nowrap px-1.5 text-xs shadow-sm" onClick={() => actions.onAcceptOrder(order)}>
                     주문확인
                 </Button>
             )}
-            {showSource && <SourcingButton order={order} actions={actions} />}
+            {showSource && <SourcingButton order={order} actions={actions} placement={placement} />}
             {showManualPurchase && <ManualPurchaseButton order={order} actions={actions} />}
-            {showDirectDelivery && (
-                <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-[29px] w-full whitespace-nowrap border-violet-200 bg-white px-1.5 text-[11px] text-violet-700 shadow-none hover:bg-violet-50"
-                    onClick={() => actions.onDispatchDirectDelivery(order)}
-                >
-                    마켓 직접전달
-                </Button>
-            )}
-            {showSendInvoice && (
-                <Button
-                    size="sm"
-                    className="h-[29px] w-full whitespace-nowrap bg-sky-600 px-1.5 text-[11px] shadow-sm hover:bg-sky-700"
-                    onClick={() => actions.onSendInvoice(order, order.domesticInvoice?.carrier, order.domesticInvoice?.trackingNumber)}
-                >
-                    배송중 처리
-                </Button>
-            )}
+            {showInvoiceEdit && <InvoiceEditButton order={order} actions={actions} />}
+            {showShippingProcess && <ShippingProcessButton order={order} actions={actions} />}
             {showProgressView && sourcingProgressView && (
                 <Button
                     size="sm"
                     variant="outline"
-                    className="h-[29px] w-full whitespace-nowrap border-emerald-200 bg-emerald-50 px-1.5 text-[10px] text-emerald-700 shadow-none hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-800"
+                    className="h-[29px] w-full whitespace-nowrap border-border bg-muted px-1.5 text-xs text-foreground shadow-none hover:border-border hover:bg-muted hover:text-foreground"
                     onClick={() => actions.onOpenSourcing(order)}
                 >
-                    {sourcingProgressView.actionLabel}
+                    {sourcingProgressActionLabel}
+                </Button>
+            )}
+            {showDeliveryStatus && <DeliveryStatusButton order={order} />}
+            {showRestartSourcingAfterRefund && (
+                <Button
+                    size="sm"
+                    className="h-[29px] w-full whitespace-nowrap px-1.5 text-xs shadow-sm"
+                    onClick={() => actions.onRestartSourcingAfterRefund(order)}
+                    aria-label={`${order.product.name} 다시 소싱하기`}
+                >
+                    다시 소싱하기
                 </Button>
             )}
             {showCancel && (
                 <>
-                    <Button size="sm" variant="outline" className="h-[29px] w-full whitespace-nowrap border-red-200 bg-white px-1.5 text-[11px] text-red-600 shadow-none hover:border-red-300 hover:bg-red-50 hover:text-red-700" onClick={() => setCancelConfirmOpen(true)}>
+                    <Button size="sm" variant="outline" className="h-[29px] w-full whitespace-nowrap border-border bg-card px-1.5 text-xs text-foreground shadow-none hover:border-border hover:bg-muted hover:text-foreground" onClick={() => setCancelConfirmOpen(true)}>
                         주문취소
                     </Button>
                     <SellerCancelDialog
@@ -818,6 +964,7 @@ export function OrderProcessActions({
                     />
                 </>
             )}
+            {isDetail ? <OrderHistoryDialog order={order} /> : null}
         </div>
     );
 }
@@ -835,13 +982,13 @@ export function createColumns(actions: OrderColumnActions): ColumnDef<Order>[] {
             enableSorting: false,
             enableHiding: false,
         },
-        { id: "sourcingLifeInfo", header: "진행상태", cell: ({ row }) => <SourcingLifeInfoCell order={row.original} /> },
         { id: "process", header: "처리하기", cell: ({ row }) => <OrderProcessActions order={row.original} actions={actions} /> },
-        { accessorKey: "orderDate", header: "주문일시", cell: ({ row }) => <OrderDateCell value={row.original.orderDate} /> },
+        { accessorKey: "orderDate", header: "주문일시", cell: ({ row }) => <OrderDateCell order={row.original} /> },
+        { id: "sourcingLifeInfo", header: "진행상태", cell: ({ row }) => <SourcingLifeInfoCell order={row.original} /> },
         { id: "productInfo", header: "상품정보", cell: ({ row }) => <ProductInfoCell order={row.original} /> },
-        { id: "invoice", header: "택배정보", cell: ({ row }) => <InvoiceActionsCell order={row.original} actions={actions} /> },
+        { id: "marginInfo", header: "결제가격/마진", cell: ({ row }) => <MarginInfoCell order={row.original} /> },
+        { id: "invoice", header: "택배정보", cell: ({ row }) => <InvoiceInfoCell order={row.original} /> },
         { id: "deliveryInfo", header: "배송정보", cell: ({ row }) => <DeliveryInfoCell order={row.original} actions={actions} /> },
-        { id: "marketAccount", header: "판매처", cell: ({ row }) => <MarketAccountCell order={row.original} /> },
     ];
 
     return columns;

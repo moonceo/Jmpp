@@ -67,7 +67,7 @@ interface ContextRow extends QueryResultRow {
     market_status_raw: string | null;
     market_fulfillment_status: string | null;
     sourcing_status: string | null;
-    market_delivery_method: "DELIVERY" | "DIRECT_DELIVERY" | null;
+    market_delivery_method: "DELIVERY" | "DIRECT_DELIVERY" | "OVERSEAS_OTHER_DELIVERY" | null;
     domestic_carrier_code: string | null;
     domestic_tracking_number: string | null;
     confirmed_at: Date | null;
@@ -90,7 +90,7 @@ interface FinalizeItemRow extends QueryResultRow {
     market_status_raw: string;
     market_fulfillment_status: string | null;
     sourcing_status: string;
-    market_delivery_method: "DELIVERY" | "DIRECT_DELIVERY" | null;
+    market_delivery_method: "DELIVERY" | "DIRECT_DELIVERY" | "OVERSEAS_OTHER_DELIVERY" | null;
     domestic_carrier_code: string | null;
     domestic_tracking_number: string | null;
     confirmed_at: Date | null;
@@ -662,6 +662,12 @@ export class PostgresNaverOutboundCommandStore implements NaverOutboundCommandSt
                         item,
                         commandId: lease.id,
                         now: input.now.toISOString(),
+                        payload: command.payload,
+                        providerDeliveryMethod: resolution.responseSummary.deliveryMethod === "DIRECT_DELIVERY"
+                            ? "DIRECT_DELIVERY"
+                            : resolution.responseSummary.deliveryMethod === "DELIVERY"
+                                ? "DELIVERY"
+                                : undefined,
                     });
                     if (!patch.ok) {
                         resolution = invariantUnknown(resolution, patch.violations);
@@ -672,7 +678,16 @@ export class PostgresNaverOutboundCommandStore implements NaverOutboundCommandSt
                                     market_invoice_submitted_at = $5::timestamptz,
                                     market_delivery_method = $6,
                                     market_fulfillment_status = $7,
-                                    internal_work_status = $8
+                                    internal_work_status = $8,
+                                    attributes = CASE
+                                        WHEN $6 = 'OVERSEAS_OTHER_DELIVERY' THEN jsonb_set(
+                                            COALESCE(attributes, '{}'::jsonb),
+                                            '{marketShippingReference}',
+                                            $9::jsonb,
+                                            true
+                                        )
+                                        ELSE attributes
+                                    END
                               WHERE tenant_id = $1
                                 AND market_account_id = $2
                                 AND id = $3`,
@@ -685,6 +700,12 @@ export class PostgresNaverOutboundCommandStore implements NaverOutboundCommandSt
                                 patch.marketDeliveryMethod,
                                 patch.marketFulfillmentStatus,
                                 patch.internalWorkStatus,
+                                JSON.stringify({
+                                    carrier: "해외기타택배",
+                                    carrierCode: command.payload?.carrierCode ?? "CH1",
+                                    trackingNumber: command.payload?.trackingNumber ?? null,
+                                    registeredAt: input.now.toISOString(),
+                                }),
                             ],
                         );
                         await recomputeSalesOrderStatus(client, {

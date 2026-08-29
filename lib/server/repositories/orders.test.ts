@@ -53,6 +53,8 @@ describe("listOrders cursor", () => {
         expect(itemProjectionSql).toContain("order_item_sourcing_mappings");
         expect(itemProjectionSql).toContain("sourcingVerificationProvenance");
         expect(itemProjectionSql).toContain("MANUAL_UNVERIFIED");
+        expect(itemProjectionSql).toContain("shippingProcessStarted");
+        expect(itemProjectionSql).toContain("SHIPPING_PROCESS");
     });
 
     it("rejects a cursor reused with different filters before querying", async () => {

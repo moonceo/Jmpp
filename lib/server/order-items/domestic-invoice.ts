@@ -72,8 +72,27 @@ export async function saveDomesticInvoice(
     if (current.market_invoice_submitted_at !== null) {
         throw new ApiError(409, "INVOICE_ALREADY_SUBMITTED", "이미 마켓에 제출한 송장은 현재 기능에서 수정할 수 없습니다.");
     }
-    if (!["PREPARING", "READY_TO_SHIP"].includes(current.internal_work_status)) {
+    if (!["PREPARING", "READY_TO_SHIP", "SHIPPING"].includes(current.internal_work_status)) {
         throw new ApiError(409, "INVOICE_NOT_ALLOWED", "현재 주문 단계에서는 국내송장을 저장할 수 없습니다.");
+    }
+
+    const shippingProcessResult = await client.query<{ started: boolean } & QueryResultRow>(
+        `SELECT EXISTS (
+             SELECT 1
+               FROM outbound_commands
+              WHERE tenant_id = $1
+                AND order_item_id = $2
+                AND deleted_at IS NULL
+                AND (
+                    command_type = 'INVOICE_SUBMIT'
+                    OR (command_type = 'SHIPPING_PROCESS' AND payload ->> 'requestedMethod' = 'DELIVERY')
+                )
+                AND status IN ('PENDING', 'LEASED', 'RETRY', 'UNKNOWN', 'SUCCEEDED')
+         ) AS started`,
+        [input.tenantId, input.orderItemId],
+    );
+    if (shippingProcessResult.rows[0]?.started) {
+        throw new ApiError(409, "DELIVERY_INVOICE_ALREADY_STARTED", "국내송장 방식의 마켓 처리가 시작된 주문은 송장을 수정할 수 없습니다.");
     }
 
     const updated = await client.query<{ version: string } & QueryResultRow>(

@@ -124,6 +124,7 @@ function record(input: {
           quantity: 1,
           unitPrice: 10_000,
           itemTotal: 10_000,
+          paymentShippingFee: 0,
           internalWorkStatus: "READY_TO_SHIP",
           marketStatusRaw: "PAYED",
           marketFulfillmentStatus: "ACKNOWLEDGED",

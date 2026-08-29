@@ -12,10 +12,10 @@ import {
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export function useDashboardMetrics() {
-    const { selectedMonth, marginConfirmedOnly, excludeCancelReturn } = useDashboardStore();
+    const { selectedMonth, marginConfirmedOnly, excludeCancelReturn, includeDirectInputCosts } = useDashboardStore();
 
     // Create a query key that includes filter dependencies so it refetches when they change
-    const queryKey = ['dashboard-metrics', selectedMonth.toISOString(), marginConfirmedOnly, excludeCancelReturn];
+    const queryKey = ['dashboard-metrics', selectedMonth.toISOString(), marginConfirmedOnly, excludeCancelReturn, includeDirectInputCosts];
 
     return useQuery({
         queryKey,

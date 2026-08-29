@@ -4,8 +4,14 @@ import {
     claimEntryActionLabel,
     formatClaimDateTime,
     getBuyerClaimActions,
+    getSourcingCompensationGuidance,
 } from "@/components/claims/claims-page-client";
-import { DEMO_BUYER_CLAIMS } from "@/lib/mock-data/claims";
+import {
+    createDemoSellerCancelClaim,
+    DEMO_BUYER_CLAIMS,
+    DEMO_SELLER_CANCEL_CLAIMS,
+} from "@/lib/mock-data/claims";
+import { createMockOrders } from "@/lib/mock-data/orders";
 
 describe("claims client query helpers", () => {
     it("keeps the signed-cursor filter tuple stable in the request URL", () => {
@@ -51,6 +57,26 @@ describe("claims client query helpers", () => {
 
         expect(DEMO_BUYER_CLAIMS.some((claim) => claim.deadlineOverdue)).toBe(true);
         expect(DEMO_BUYER_CLAIMS.every((claim) => getBuyerClaimActions(claim).length > 0)).toBe(true);
+        expect(DEMO_BUYER_CLAIMS.some((claim) => claim.purchaseCompensationStatus === "NEEDS_ATTENTION")).toBe(true);
+        expect(DEMO_BUYER_CLAIMS.some((claim) => claim.purchaseCompensationStatus === "IN_PROGRESS")).toBe(true);
+        expect(DEMO_BUYER_CLAIMS.some((claim) => claim.purchaseCompensationStatus === "SUCCEEDED")).toBe(true);
+    });
+
+    it("shows seller-initiated cancellations as completed cancellation records", () => {
+        expect(DEMO_SELLER_CANCEL_CLAIMS).toHaveLength(1);
+        expect(DEMO_SELLER_CANCEL_CLAIMS[0]).toMatchObject({
+            claimType: "CANCEL",
+            source: "SELLER",
+            requesterType: "SELLER",
+            normalizedStatus: "COMPLETED",
+        });
+        expect(getBuyerClaimActions(DEMO_SELLER_CANCEL_CLAIMS[0])).toEqual([]);
+
+        const order = createMockOrders(new Date())[0];
+        const claim = createDemoSellerCancelClaim(order, "2026-08-21T10:30:00+09:00", "상품 품절");
+        expect(claim.externalOrderNumber).toBe(order.marketOrderId);
+        expect(claim.marketReasonMasked).toBe("상품 품절");
+        expect(claim.lines[0].productName).toBe(order.product.name);
     });
 
     it("offers state-specific buttons for Naver and Coupang buyer claims", () => {
@@ -99,5 +125,10 @@ describe("claims client query helpers", () => {
             normalizedStatus: "RECEIVED",
             marketStatusRaw: "VENDOR_WAREHOUSE_CONFIRM",
         }).map((action) => action.label)).toEqual(["반품 승인"]);
+    });
+
+    it("keeps sourcing compensation guidance separate from market claim execution", () => {
+        expect(getSourcingCompensationGuidance("NEEDS_ATTENTION")).toContain("마켓 처리와 별도로");
+        expect(getSourcingCompensationGuidance("SUCCEEDED")).toContain("마켓 환불 완료 여부");
     });
 });

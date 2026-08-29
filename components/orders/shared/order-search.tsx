@@ -10,23 +10,25 @@ import {
     CommandList,
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { MARKET_BADGE_CLASSES, MARKET_LABELS } from "@/lib/constants/orders";
+import { filterOrders, getOrderAccountKey, type OrderPeriodFilter } from "@/lib/order-search";
 import { cn } from "@/lib/utils";
 import { MarketType, Order } from "@/types/order";
 
 export interface OrderSearchProps {
     baseData: Order[];
     onSearch: (filtered: Order[]) => void;
+    linkedStores?: readonly AccountOption[];
     middleContent?: ReactNode;
     commonAction?: ReactNode;
     showMarketFilter?: boolean;
     placeholder?: string;
 }
 
-type PeriodFilter = "today" | "3d" | "7d" | "1m" | "custom";
-
-interface AccountOption {
+export interface AccountOption {
     key: string;
     marketType: MarketType;
     storeName: string;
@@ -40,11 +42,11 @@ const marketOptions: Array<{ value: MarketType; label: string }> = [
     { value: "auction", label: MARKET_LABELS.auction },
 ];
 
-const periodOptions: Array<{ value: PeriodFilter; label: string; days?: number }> = [
-    { value: "today", label: "오늘", days: 0 },
-    { value: "3d", label: "3일", days: 3 },
-    { value: "7d", label: "7일", days: 7 },
-    { value: "1m", label: "30일", days: 30 },
+const periodOptions: Array<{ value: OrderPeriodFilter; label: string }> = [
+    { value: "today", label: "오늘" },
+    { value: "3d", label: "3일" },
+    { value: "7d", label: "7일" },
+    { value: "1m", label: "30일" },
     { value: "custom", label: "직접 입력" },
 ];
 
@@ -56,15 +58,11 @@ const marketIconMeta: Record<MarketType, { label: string; className: string }> =
     auction: { label: "A", className: MARKET_BADGE_CLASSES.auction },
 };
 
-function getAccountKey(order: Pick<Order, "marketType" | "storeName">) {
-    return `${order.marketType}:${order.storeName}`;
-}
-
 function MarketIcon({ marketType }: { marketType: MarketType }) {
     const icon = marketIconMeta[marketType];
 
     return (
-        <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold", icon.className)}>
+        <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold", icon.className)}>
             {icon.label}
         </span>
     );
@@ -73,6 +71,7 @@ function MarketIcon({ marketType }: { marketType: MarketType }) {
 export function OrderSearch({
     baseData,
     onSearch,
+    linkedStores,
     commonAction,
     middleContent,
     showMarketFilter = true,
@@ -81,16 +80,16 @@ export function OrderSearch({
     const [searchTerm, setSearchTerm] = useState("");
     const [marketFilters, setMarketFilters] = useState<MarketType[]>([]);
     const [accountFilters, setAccountFilters] = useState<string[]>([]);
-    const [periodFilter, setPeriodFilter] = useState<PeriodFilter>("7d");
+    const [periodFilter, setPeriodFilter] = useState<OrderPeriodFilter>("7d");
     const [startDate, setStartDate] = useState("");
     const [endDate, setEndDate] = useState("");
     const [dateOpen, setDateOpen] = useState(false);
     const [combinedOpen, setCombinedOpen] = useState(false);
-    const accountOptions = useMemo(() => {
+    const derivedAccountOptions = useMemo(() => {
         const optionMap = new Map<string, AccountOption>();
 
         baseData.forEach((order) => {
-            const key = getAccountKey(order);
+            const key = getOrderAccountKey(order);
             if (!optionMap.has(key)) {
                 optionMap.set(key, {
                     key,
@@ -102,43 +101,17 @@ export function OrderSearch({
 
         return Array.from(optionMap.values());
     }, [baseData]);
+    const accountOptions = linkedStores ?? derivedAccountOptions;
 
     useEffect(() => {
-        const term = searchTerm.trim().toLowerCase();
-        const normalizedTerm = term.replace(/\D/g, "");
-        const selectedPeriod = periodOptions.find((item) => item.value === periodFilter);
-        const cutoff = selectedPeriod?.days !== undefined && periodFilter !== "custom"
-            ? new Date(new Date().getTime() - selectedPeriod.days * 24 * 60 * 60 * 1000)
-            : undefined;
-        const start = periodFilter === "custom" && startDate ? new Date(`${startDate}T00:00:00`) : undefined;
-        const end = periodFilter === "custom" && endDate ? new Date(`${endDate}T23:59:59`) : undefined;
-        const filtered = baseData.filter((order) => {
-            const phoneTargets = [order.buyerPhone, order.recipient.phone].map((value) => value.replace(/\D/g, ""));
-            const matchesSearch =
-                !term ||
-                order.product.name.toLowerCase().includes(term) ||
-                order.marketOrderId.toLowerCase().includes(term) ||
-                order.product.productOrderId?.toLowerCase().includes(term) ||
-                order.product.id.toLowerCase().includes(term) ||
-                order.id.toLowerCase().includes(term) ||
-                order.buyerName.toLowerCase().includes(term) ||
-                order.buyerId?.toLowerCase().includes(term) ||
-                order.recipient.name.toLowerCase().includes(term) ||
-                order.recipient.deliveryMessage?.toLowerCase().includes(term) ||
-                order.recipient.personalCustomsCode?.toLowerCase().includes(term) ||
-                phoneTargets.some((phone) => normalizedTerm && phone.includes(normalizedTerm));
-
-            const matchesMarket = marketFilters.length === 0 || marketFilters.includes(order.marketType);
-            const matchesAccount = accountFilters.length === 0 || accountFilters.includes(getAccountKey(order));
-            const orderDate = new Date(order.orderDate.replace(/-/g, "/"));
-            const matchesPeriod = (!cutoff || orderDate >= cutoff)
-                && (!start || orderDate >= start)
-                && (!end || orderDate <= end);
-
-            return matchesSearch && matchesMarket && matchesAccount && matchesPeriod;
-        });
-
-        onSearch(filtered);
+        onSearch(filterOrders(baseData, {
+            searchTerm,
+            marketFilters,
+            accountFilters,
+            periodFilter,
+            startDate,
+            endDate,
+        }));
     }, [accountFilters, baseData, endDate, marketFilters, onSearch, periodFilter, searchTerm, startDate]);
 
     const hasCombinedFilter = marketFilters.length > 0 || accountFilters.length > 0;
@@ -172,66 +145,70 @@ export function OrderSearch({
     return (
         <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                <div className="inline-flex overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
+                <ToggleGroup
+                    type="single"
+                    variant="outline"
+                    size="sm"
+                    value={periodFilter}
+                    onValueChange={(value) => {
+                        if (!value) return;
+                        const period = value as OrderPeriodFilter;
+                        setPeriodFilter(period);
+                        if (period === "custom") {
+                            setDateOpen(true);
+                            return;
+                        }
+                        setStartDate("");
+                        setEndDate("");
+                        setDateOpen(false);
+                    }}
+                >
                     {periodOptions.map((period) => (
-                        <Button
+                        <ToggleGroupItem
                             key={period.value}
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className={cn(
-                                "h-8 rounded-none border-r border-slate-200 px-3 text-xs font-bold text-slate-600 last:border-r-0 hover:bg-slate-50",
-                                periodFilter === period.value && "bg-slate-100 text-slate-950 hover:bg-slate-100",
-                            )}
-                            onClick={() => {
-                                setPeriodFilter(period.value);
-                                if (period.value === "custom") {
-                                    setDateOpen(true);
-                                    return;
-                                }
-                                setStartDate("");
-                                setEndDate("");
-                                setDateOpen(false);
-                            }}
+                            value={period.value}
+                            className="font-bold"
                         >
                             {period.label}
-                        </Button>
+                        </ToggleGroupItem>
                     ))}
-                </div>
+                </ToggleGroup>
 
                 <Popover open={dateOpen} onOpenChange={setDateOpen}>
                     <PopoverTrigger asChild>
-                        <button type="button" className="sr-only">직접 기간 선택</button>
+                        <Button type="button" variant="ghost" className="sr-only">직접 기간 선택</Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-[240px] rounded-md p-3" align="start">
                         <div className="grid gap-2">
-                            <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-                                시작날짜
+                            <Field className="gap-1">
+                                <FieldLabel htmlFor="order-start-date">시작날짜</FieldLabel>
                                 <Input
+                                    id="order-start-date"
                                     type="date"
                                     value={startDate}
                                     onChange={(event) => setStartDate(event.target.value)}
                                     className="bg-background shadow-none"
                                 />
-                            </label>
-                            <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-                                끝나는날짜
+                            </Field>
+                            <Field className="gap-1">
+                                <FieldLabel htmlFor="order-end-date">끝나는날짜</FieldLabel>
                                 <Input
+                                    id="order-end-date"
                                     type="date"
                                     value={endDate}
                                     onChange={(event) => setEndDate(event.target.value)}
                                     className="bg-background shadow-none"
                                 />
-                            </label>
+                            </Field>
                         </div>
                     </PopoverContent>
                 </Popover>
 
                 <div className="relative min-w-[280px] flex-1 xl:max-w-[380px]">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                         placeholder={placeholder}
-                        className="h-8 border-slate-200 bg-white pl-9 text-sm shadow-sm focus-visible:bg-white"
+                        className="h-8 border-border bg-card pl-9 text-sm shadow-sm focus-visible:bg-card"
                         value={searchTerm}
                         onChange={(event) => setSearchTerm(event.target.value)}
                         aria-label="주문 검색"
@@ -246,12 +223,12 @@ export function OrderSearch({
                                 size="icon"
                                 aria-label="마켓/스토어 필터"
                                 className={cn(
-                                    "relative h-8 w-8 border-slate-200 bg-white shadow-sm",
-                                    hasCombinedFilter && "border-red-200 bg-red-50 text-[#ff321c]",
+                                    "relative h-8 w-8 border-border bg-card shadow-sm",
+                                    hasCombinedFilter && "border-foreground bg-primary text-primary-foreground",
                                 )}
                             >
                                 <Store className="h-4 w-4" />
-                                {hasCombinedFilter && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-[#ff321c]" />}
+                                {hasCombinedFilter && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-primary-foreground" />}
                             </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-[280px] rounded-md p-0" align="start">

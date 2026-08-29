@@ -9,18 +9,23 @@ import {
     getOrderStatusFilterOptions,
     getOrderViewCount,
     mapApiMarketOrderStatus,
+    mapApiManagedOrderStatus,
     mapApiOrderStatus,
     mapApiProgress,
     mapApiSourcingStatus,
     summarizeOrderSyncRuns,
 } from "@/components/orders/orders-page-client";
-import { createColumns, getProcessActionAvailability, getProcessActionVisibility, getProcessResultLabel } from "@/components/orders/shared/columns";
-import { ORDER_STATUSES, ORDER_STATUS_LABELS } from "@/lib/constants/orders";
+import { createColumns, getProcessActionAvailability, getProcessActionVisibility, getProcessResultLabel, getSourcingActionLabel } from "@/components/orders/shared/columns";
+import { hasCompletedMarketShipping, isDirectDeliveryEligible, supportsDirectDelivery, supportsOverseasOtherDelivery } from "@/components/orders/shipping-process-dialog";
+import { getSourcingRefundActionLabel } from "@/components/orders/sourcing-workflow-dialog";
+import { MARKET_ABBREVIATIONS, ORDER_STATUSES, ORDER_STATUS_LABELS } from "@/lib/constants/orders";
 import { mockOrders } from "@/lib/mock-data/orders";
+import { calculateOrderMargin } from "@/lib/order-margin";
+import { getOrderShippingInformation } from "@/lib/order-shipping-information";
 import { getSourcingProgressViewMeta, hasCompletedSourcingPurchase } from "@/lib/sourcing-progress";
 
 describe("order table columns", () => {
-    it("places progress status immediately before process actions", () => {
+    it("places selection, process actions, order date, and progress status first", () => {
         const noop = () => undefined;
         const columns = createColumns({
             onOpenSourcing: noop,
@@ -34,24 +39,72 @@ describe("order table columns", () => {
             onCancelOrder: () => true,
             onApproveCancelClaim: noop,
             onRejectCancelClaim: noop,
-            onDispatchDirectDelivery: noop,
-            onSendInvoice: noop,
+            onProcessShipping: noop,
             onSaveInvoice: noop,
             onSaveRecipientInfo: noop,
+            onRestartSourcingAfterRefund: noop,
         });
 
         expect(columns.map((column) => (
             column.id ?? ("accessorKey" in column ? String(column.accessorKey) : undefined)
         ))).toEqual([
             "select",
-            "sourcingLifeInfo",
             "process",
             "orderDate",
+            "sourcingLifeInfo",
             "productInfo",
+            "marginInfo",
             "invoice",
             "deliveryInfo",
-            "marketAccount",
         ]);
+    });
+
+    it("uses a compact market icon beside the store name in the order-date cell", () => {
+        expect(MARKET_ABBREVIATIONS).toEqual({
+            naver: "N",
+            coupang: "C",
+            "11st": "11",
+            gmarket: "G",
+            auction: "A",
+        });
+    });
+});
+
+describe("order shipping information", () => {
+    it("provides domestic tracking, direct-delivery status, and China tracking separately", () => {
+        const directOrder = mockOrders.find((order) => (
+            order.marketDeliveryMethod === "DIRECT_DELIVERY"
+            && order.chinaInvoice?.trackingNumber
+        ));
+        expect(directOrder).toBeDefined();
+
+        expect(getOrderShippingInformation(directOrder!)).toMatchObject({
+            domesticTrackingNumber: directOrder!.domesticInvoice?.trackingNumber,
+            isDirectDelivery: true,
+            directDeliveryLabel: "직접전달",
+            chinaTrackingNumber: directOrder!.chinaInvoice?.trackingNumber,
+        });
+
+        const orderWithoutChinaTracking = mockOrders.find((order) => order.sourcingProgressStage === "PAYMENT_WAITING");
+        const regularShippingInformation = getOrderShippingInformation(orderWithoutChinaTracking!);
+        expect(regularShippingInformation).toMatchObject({
+            isDirectDelivery: false,
+            chinaTrackingNumber: undefined,
+        });
+        expect(regularShippingInformation).not.toHaveProperty("directDeliveryLabel");
+    });
+
+    it("shows only the overseas-other processing label without exposing its arbitrary tracking reference", () => {
+        const overseasOrder = mockOrders.find((order) => order.marketDeliveryMethod === "OVERSEAS_OTHER_DELIVERY");
+        expect(overseasOrder).toBeDefined();
+        expect(overseasOrder?.marketType).toBe("naver");
+        const shippingInformation = getOrderShippingInformation(overseasOrder!);
+        expect(shippingInformation).toMatchObject({
+            marketProcessingLabel: "해외기타배송",
+            domesticTrackingNumber: "512606180053",
+        });
+        expect(shippingInformation).not.toHaveProperty("marketCarrier");
+        expect(shippingInformation).not.toHaveProperty("marketTrackingNumber");
     });
 });
 
@@ -74,25 +127,28 @@ describe("live order hold projection", () => {
         expect(getOrderViewCount([{ status: "ON_HOLD" }], "all")).toBe(1);
     });
 
-    it("offers a direct ON_HOLD filter on the all-orders tab", () => {
-        expect(getOrderStatusFilterOptions("all")).toContainEqual({
+    it("keeps operational hold states out of the sourcing progress filter", () => {
+        expect(getOrderStatusFilterOptions("all")).not.toContainEqual(expect.objectContaining({
             value: "ON_HOLD",
-            label: "처리보류",
-        });
+        }));
         expect(getOrderListStatuses({
             status: "ON_HOLD",
             sourcingLifeSyncStatus: "HOLD",
-        })).toContain("ON_HOLD");
+        })).toContain("MATCH_REQUIRED");
     });
 
     it("uses sourcing and payment terminology for sourcing progress filters", () => {
         expect(getOrderStatusFilterOptions("new")).toEqual([
             { value: "MATCH_REQUIRED", label: "소싱필요" },
-            { value: "MATCH_PENDING_REVIEW", label: "소싱 검증대기" },
         ]);
+        expect(getOrderListStatuses({
+            status: "PREPARING",
+            sourcingLifeSyncStatus: "MATCHING",
+            sourcingProgressStage: "MATCH_PENDING_REVIEW",
+        })).toEqual(["MATCH_REQUIRED"]);
         expect(getOrderStatusFilterOptions("preparing")).toContainEqual({
             value: "MATCHED",
-            label: "소싱완료",
+            label: "매칭완료",
         });
         expect(getOrderStatusFilterOptions("waiting")).toContainEqual({
             value: "SOURCED",
@@ -101,6 +157,30 @@ describe("live order hold projection", () => {
         expect(getOrderStatusFilterOptions("waiting")).not.toContainEqual(expect.objectContaining({
             value: "EXTERNAL_PURCHASE",
         }));
+    });
+
+    it("keeps every tab-specific status option available even when no order currently uses it", () => {
+        expect(getOrderStatusFilterOptions("preparing")).toEqual([
+            { value: "MATCH_REQUIRED", label: "소싱필요" },
+            { value: "MATCHED", label: "매칭완료" },
+            { value: "PAYMENT_WAITING", label: "결제대기" },
+        ]);
+        expect(getOrderStatusFilterOptions("waiting")).toEqual([
+            { value: "SOURCED", label: "결제완료" },
+            { value: "CHINA_SHIPPING", label: "중국배송중" },
+            { value: "CUSTOMS_CLEARANCE", label: "통관 중" },
+            { value: "DOMESTIC_SHIPPING", label: "국내 배송중" },
+        ]);
+        expect(getOrderStatusFilterOptions("shipping")).toEqual([
+            { value: "SOURCED", label: "결제완료" },
+            { value: "CHINA_SHIPPING", label: "중국배송중" },
+            { value: "CUSTOMS_CLEARANCE", label: "통관 중" },
+            { value: "DOMESTIC_SHIPPING", label: "국내 배송중" },
+        ]);
+        expect(getOrderStatusFilterOptions("delivered")).toEqual([
+            { value: "DELIVERED", label: "배송완료" },
+            { value: "PURCHASE_CONFIRMED", label: "구매확정" },
+        ]);
     });
 
     it("exposes no operational action for an ON_HOLD row", () => {
@@ -169,9 +249,20 @@ describe("demo sourcing payment wait", () => {
             sourcingForwarder: { code: "sl-weihai-a" },
         });
     });
+
 });
 
 describe("mock order data quality", () => {
+    it("demonstrates every margin source and an exceptional negative margin in the order list", () => {
+        const margins = mockOrders.map((order) => calculateOrderMargin(order));
+
+        expect(margins.some((margin) => margin?.costBasis === "ACTUAL_PAYMENT")).toBe(true);
+        expect(margins.some((margin) => margin?.costBasis === "MATCHED_PRICE")).toBe(true);
+        expect(margins.some((margin) => margin?.costBasis === "DIRECT_PURCHASE")).toBe(true);
+        expect(margins.some((margin) => margin === undefined)).toBe(true);
+        expect(margins.some((margin) => margin !== undefined && margin.marginAmount < 0)).toBe(true);
+    });
+
     const hasValidCustomsCode = (value?: string) => /^P\d{12}$/.test(value?.trim().toUpperCase() ?? "");
 
     it("keeps order IDs unique", () => {
@@ -225,20 +316,110 @@ describe("mock order data quality", () => {
         });
     });
 
-    it("keeps direct-delivery prepayment work in product preparation", () => {
+    it("keeps direct-delivery prepayment work undispatched in product preparation", () => {
         const directDeliveryPrepayment = mockOrders.find((order) => (
             order.status === "PREPARING"
             && order.marketDeliveryMethod === "DIRECT_DELIVERY"
-            && order.marketOrderStatus === "DELIVERING"
+            && !hasCompletedMarketShipping(order)
             && !hasCompletedSourcingPurchase(order)
         ));
 
         expect(directDeliveryPrepayment).toBeDefined();
         expect(hasValidCustomsCode(directDeliveryPrepayment?.recipient.personalCustomsCode)).toBe(true);
     });
+
+    it("never dispatches a demo marketplace order before sourcing or direct purchase completes", () => {
+        expect(mockOrders.filter((order) => (
+            hasCompletedMarketShipping(order) && !hasCompletedSourcingPurchase(order)
+        ))).toEqual([]);
+    });
+
+    it("includes all three marketplace methods only after market dispatch", () => {
+        const submittedMethods = new Set(mockOrders
+            .filter((order) => order.status === "SHIPPING" && order.marketOrderStatus === "DELIVERING")
+            .map((order) => order.marketDeliveryMethod));
+
+        expect(submittedMethods).toEqual(new Set(["DELIVERY", "DIRECT_DELIVERY", "OVERSEAS_OTHER_DELIVERY"]));
+    });
+
+    it("keeps every mock product inside its marketplace shipping-method policy", () => {
+        const methodsByMarket = new Map(["naver", "11st", "coupang", "gmarket", "auction"].map((market) => [
+            market,
+            new Set(mockOrders.filter((order) => order.marketType === market).map((order) => order.marketDeliveryMethod)),
+        ]));
+
+        expect(methodsByMarket.get("naver")).toEqual(new Set(["DELIVERY", "DIRECT_DELIVERY", "OVERSEAS_OTHER_DELIVERY"]));
+        expect(methodsByMarket.get("11st")).toEqual(new Set(["DELIVERY", "DIRECT_DELIVERY"]));
+        expect(methodsByMarket.get("coupang")).toEqual(new Set(["DELIVERY"]));
+        expect(methodsByMarket.get("gmarket")).toEqual(new Set(["DELIVERY"]));
+        expect(methodsByMarket.get("auction")).toEqual(new Set(["DELIVERY"]));
+
+        mockOrders.filter((order) => order.marketDeliveryMethod === "DIRECT_DELIVERY").forEach((order) => {
+            expect(supportsDirectDelivery(order)).toBe(true);
+        });
+        mockOrders.filter((order) => order.marketDeliveryMethod === "OVERSEAS_OTHER_DELIVERY").forEach((order) => {
+            expect(supportsOverseasOtherDelivery(order)).toBe(true);
+            expect(order.marketShippingReference?.trackingNumber).toBeTruthy();
+            expect(order.domesticInvoice?.trackingNumber).toBeTruthy();
+        });
+    });
+
+    it("keeps the shipping-wait tab populated with every invoice-only marketplace scenario", () => {
+        const readyToShipOrders = mockOrders.filter((order) => order.status === "READY_TO_SHIP");
+
+        expect(readyToShipOrders.length).toBeGreaterThanOrEqual(10);
+        expect(new Set(readyToShipOrders.map((order) => order.marketType))).toEqual(
+            new Set(["naver", "11st", "coupang", "gmarket", "auction"]),
+        );
+        ["ORD-20260618-0059", "ORD-20260618-0060", "ORD-20260618-0061", "ORD-20260618-0062"].forEach((id) => {
+            expect(readyToShipOrders.find((order) => order.id === id)).toMatchObject({
+                marketDeliveryMethod: "DELIVERY",
+                marketOrderStatus: "PAYED",
+                domesticInvoice: expect.objectContaining({ trackingNumber: expect.any(String) }),
+            });
+        });
+    });
+
+    it("never marks an internal domestic invoice as submitted before domestic shipping starts", () => {
+        const prematurelySubmitted = mockOrders.filter((order) => (
+            order.domesticInvoice?.uploadedToMarketAt
+            && !["DOMESTIC_SHIPPING", "DELIVERED"].includes(order.sourcingProgressStage ?? "")
+        ));
+
+        expect(prematurelySubmitted).toEqual([]);
+    });
+
+    it.each([
+        ["ORD-20260618-0045", "DIRECT_DELIVERY", "EXTERNAL_PURCHASE", false, undefined],
+        ["ORD-20260618-0056", "OVERSEAS_OTHER_DELIVERY", "CUSTOMS_CLEARANCE", false, undefined],
+        ["ORD-20260618-0057", "DIRECT_DELIVERY", "DOMESTIC_SHIPPING", true, undefined],
+        ["ORD-20260618-0058", "DELIVERY", "DOMESTIC_SHIPPING", false, "crawler"],
+    ] as const)(
+        "keeps invoice-correction demo %s coherent",
+        (id, marketDeliveryMethod, sourcingProgressStage, canEditInvoice, uploadMode) => {
+            const order = mockOrders.find((item) => item.id === id);
+
+            expect(order).toMatchObject({
+                status: "SHIPPING",
+                marketOrderStatus: "DELIVERING",
+                marketDeliveryMethod,
+                sourcingProgressStage,
+                domesticInvoice: expect.objectContaining({ trackingNumber: expect.any(String) }),
+            });
+            expect(getProcessActionVisibility(order!, "detail").showInvoiceEdit).toBe(canEditInvoice);
+            expect(order?.domesticInvoice?.uploadMode).toBe(uploadMode);
+        },
+    );
 });
 
 describe("sourcing status projection", () => {
+    it("preserves the internal status instead of inferring shipping from sourcing payment", () => {
+        expect(mapApiManagedOrderStatus("READY_TO_SHIP", "PAID")).toBe("READY_TO_SHIP");
+        expect(mapApiManagedOrderStatus("PREPARING", "INVOICE_RECEIVED")).toBe("PREPARING");
+        expect(mapApiManagedOrderStatus("DELIVERED", "PAID")).toBe("DELIVERED");
+        expect(mapApiManagedOrderStatus("READY_TO_SHIP", "EXTERNAL_PURCHASE")).toBe("READY_TO_SHIP");
+    });
+
     it("projects live payment readiness as payment waiting", () => {
         expect(mapApiProgress("PAYMENT_READY")).toBe("PAYMENT_WAITING");
     });
@@ -274,15 +455,35 @@ describe("sourcing status projection", () => {
 });
 
 describe("process-column result labels", () => {
-    it("never exposes seller cancellation for a direct-delivery order", () => {
-        for (const status of ["NEW", "PREPARING", "READY_TO_SHIP"] as const) {
-            expect(getProcessActionAvailability({
-                status,
-                marketType: "naver",
-                marketDeliveryMethod: "DIRECT_DELIVERY",
-                marketOrderStatus: "DELIVERING",
-            }).canCancel).toBe(false);
-        }
+    it("allows direct delivery only for SmartStore and 11st", () => {
+        expect(supportsDirectDelivery({ marketType: "gmarket" })).toBe(false);
+        expect(supportsDirectDelivery({ marketType: "auction" })).toBe(false);
+        expect(supportsDirectDelivery({ marketType: "11st" })).toBe(true);
+        expect(supportsDirectDelivery({ marketType: "naver", dataSource: "api" })).toBe(true);
+        expect(supportsDirectDelivery({ marketType: "coupang", dataSource: "api" })).toBe(false);
+        expect(supportsDirectDelivery({ marketType: "gmarket", dataSource: "api" })).toBe(false);
+    });
+
+    it("allows direct delivery by marketplace regardless of the order's previous delivery method", () => {
+        expect(isDirectDeliveryEligible({ marketType: "naver", marketDeliveryMethod: "DIRECT_DELIVERY" })).toBe(true);
+        expect(isDirectDeliveryEligible({ marketType: "11st", marketDeliveryMethod: "DIRECT_DELIVERY" })).toBe(true);
+        expect(isDirectDeliveryEligible({ marketType: "naver", marketDeliveryMethod: "DELIVERY" })).toBe(true);
+        expect(isDirectDeliveryEligible({ marketType: "coupang", marketDeliveryMethod: "DIRECT_DELIVERY" })).toBe(false);
+    });
+
+    it("allows cancellation before provisional direct dispatch and locks it after dispatch", () => {
+        expect(getProcessActionAvailability({
+            status: "PREPARING",
+            marketType: "naver",
+            marketDeliveryMethod: "DIRECT_DELIVERY",
+            marketOrderStatus: "PAYED",
+        }).canCancel).toBe(true);
+        expect(getProcessActionAvailability({
+            status: "READY_TO_SHIP",
+            marketType: "naver",
+            marketDeliveryMethod: "DIRECT_DELIVERY",
+            marketOrderStatus: "DELIVERING",
+        }).canCancel).toBe(false);
     });
 
     it("keeps low-frequency preparing actions in detail only", () => {
@@ -297,35 +498,371 @@ describe("process-column result labels", () => {
         expect(getProcessActionVisibility(preparingOrder, "list")).toMatchObject({
             showSource: true,
             showManualPurchase: false,
-            showDirectDelivery: false,
+            showShippingProcess: false,
             showCancel: true,
         });
-        expect(getProcessActionVisibility(preparingOrder, "detail")).toMatchObject({
+        const detailVisibility = getProcessActionVisibility(preparingOrder, "detail");
+        expect(detailVisibility).toMatchObject({
             showManualPurchase: true,
-            showDirectDelivery: true,
+            showShippingProcess: false,
+            showCancel: true,
+        });
+        expect(detailVisibility).not.toHaveProperty("showRecipientEdit");
+    });
+
+    it("limits list processing actions to the essential action set for each order tab", () => {
+        expect(getProcessActionVisibility({
+            status: "NEW",
+            marketType: "naver",
+            marketDeliveryMethod: "DELIVERY",
+            marketOrderStatus: "PAYED",
+        }, "list")).toMatchObject({
+            showAccept: true,
+            showSource: true,
+            showCancel: true,
+            showManualPurchase: false,
+            showShippingProcess: false,
+            showInvoiceEdit: false,
+            showProgressView: false,
+            showDeliveryStatus: false,
+        });
+
+        expect(getProcessActionVisibility({
+            status: "PREPARING",
+            marketType: "naver",
+            marketDeliveryMethod: "DELIVERY",
+            marketOrderStatus: "PAYED",
+            sourcingProgressStage: "MATCHED",
+        }, "list")).toMatchObject({
+            showAccept: false,
+            showSource: true,
+            showCancel: true,
+            showManualPurchase: false,
+            showShippingProcess: false,
+            showInvoiceEdit: false,
+            showProgressView: false,
+            showDeliveryStatus: false,
+        });
+
+        const readyToShipOrder = {
+            status: "READY_TO_SHIP" as const,
+            marketType: "naver" as const,
+            marketDeliveryMethod: "DELIVERY" as const,
+            marketOrderStatus: "PAYED" as const,
+            sourcingLifeSyncStatus: "INVOICE_RECEIVED" as const,
+            sourcingProgressStage: "SOURCED" as const,
+            domesticInvoice: {
+                carrier: "CJ대한통운",
+                trackingNumber: "1234567890",
+                receivedAt: "2026-08-20 10:00",
+            },
+        };
+        expect(getProcessActionVisibility(readyToShipOrder, "list")).toMatchObject({
+            showAccept: false,
+            showSource: false,
+            showCancel: false,
+            showManualPurchase: false,
+            showShippingProcess: true,
+            showInvoiceEdit: false,
+            showProgressView: false,
+            showDeliveryStatus: false,
+        });
+
+        for (const status of ["SHIPPING", "DELIVERED"] as const) {
+            expect(getProcessActionVisibility({
+                ...readyToShipOrder,
+                status,
+            }, "list")).toMatchObject({
+                showAccept: false,
+                showSource: false,
+                showCancel: false,
+                showManualPurchase: false,
+                showShippingProcess: false,
+                showInvoiceEdit: false,
+                showProgressView: false,
+                showDeliveryStatus: false,
+            });
+        }
+    });
+
+    it("provides the full detail action set for each pre-shipping progress state", () => {
+        const newOrder = {
+            status: "NEW",
+            marketType: "naver",
+            sourcingLifeSyncStatus: "NOT_LINKED",
+        } as const;
+        expect(getSourcingActionLabel(newOrder)).toBe("매칭하기");
+        expect(getProcessActionVisibility(newOrder, "detail")).toMatchObject({
+            showAccept: true,
+            showSource: true,
+            showCancel: true,
+        });
+
+        const paymentWaitingOrder = {
+            status: "PREPARING",
+            marketType: "naver",
+            sourcingLifeSyncStatus: "PAYMENT_READY",
+            sourcingProgressStage: "PAYMENT_WAITING",
+            recipient: { name: "홍길동", phone: "010-0000-0000", address: "서울", personalCustomsCode: "P123456789012" },
+        } as const;
+        expect(getSourcingActionLabel(paymentWaitingOrder)).toBe("결제하기");
+        expect(getSourcingActionLabel(paymentWaitingOrder, "list")).toBe("소싱하기");
+        expect(getProcessActionVisibility(paymentWaitingOrder, "detail")).toMatchObject({
+            showSource: true,
+            showManualPurchase: false,
+            showShippingProcess: false,
+            showCancel: true,
+        });
+
+        expect(getProcessActionVisibility({
+            ...paymentWaitingOrder,
+            recipient: { ...paymentWaitingOrder.recipient, personalCustomsCode: "INVALID" },
+        }, "detail")).toMatchObject({
+            showSource: false,
             showCancel: true,
         });
     });
 
-    it("shows only delivery processing in a ready-to-ship list and all valid actions in detail", () => {
+    it("keeps shipping-stage lookup and tracking actions in details only", () => {
         const readyOrder = {
-            status: "READY_TO_SHIP" as const,
+            status: "SHIPPING" as const,
             marketType: "naver" as const,
             marketDeliveryMethod: "DELIVERY" as const,
             marketOrderStatus: "PAYED" as const,
             sourcingLifeSyncStatus: "PAID" as const,
             sourcingProgressStage: "SOURCED" as const,
+            domesticInvoice: {
+                carrier: "CJ대한통운",
+                trackingNumber: "1234567890",
+                receivedAt: "2026-08-20 10:00",
+            },
         };
 
         expect(getProcessActionVisibility(readyOrder, "list")).toMatchObject({
-            showSendInvoice: true,
+            showShippingProcess: false,
             showProgressView: false,
+            sourcingProgressActionLabel: "소싱상품관리",
+            showDeliveryStatus: false,
             showCancel: false,
         });
         expect(getProcessActionVisibility(readyOrder, "detail")).toMatchObject({
-            showSendInvoice: true,
+            showShippingProcess: true,
+            showInvoiceEdit: false,
             showProgressView: true,
-            showCancel: true,
+            sourcingProgressActionLabel: "소싱상품관리",
+            showDeliveryStatus: true,
+            showCancel: false,
+        });
+
+        expect(getProcessActionVisibility({
+            ...readyOrder,
+            domesticInvoice: undefined,
+        }, "detail")).toMatchObject({
+            showShippingProcess: true,
+            showInvoiceEdit: false,
+        });
+    });
+
+    it("allows a completed manual purchase to edit its invoice and finish shipping later", () => {
+        const manualPurchaseWaiting = {
+            status: "READY_TO_SHIP" as const,
+            marketType: "naver" as const,
+            marketDeliveryMethod: "DELIVERY" as const,
+            marketOrderStatus: "PAYED" as const,
+            sourcingLifeSyncStatus: "NOT_LINKED" as const,
+            sourcingProgressStage: "EXTERNAL_PURCHASE" as const,
+            dataSource: "mock" as const,
+        };
+
+        expect(getProcessActionVisibility(manualPurchaseWaiting, "detail")).toMatchObject({
+            showInvoiceEdit: true,
+            showShippingProcess: true,
+        });
+        expect(getProcessActionVisibility(manualPurchaseWaiting, "list")).toMatchObject({
+            showInvoiceEdit: false,
+            showShippingProcess: true,
+        });
+        expect(getProcessActionVisibility({
+            ...manualPurchaseWaiting,
+            domesticInvoice: {
+                carrier: "CJ대한통운",
+                trackingNumber: "512606180040",
+                receivedAt: "2026-06-18 13:40",
+            },
+        }, "detail")).toMatchObject({
+            showInvoiceEdit: true,
+            showShippingProcess: true,
+        });
+    });
+
+    it.each(["DIRECT_DELIVERY", "DELIVERY"] as const)(
+        "finishes an already submitted %s ready-to-ship order without another market choice",
+        (marketDeliveryMethod) => {
+            const dispatchedOrder = {
+                status: "READY_TO_SHIP" as const,
+                marketType: "naver" as const,
+                marketDeliveryMethod,
+                marketOrderStatus: "DELIVERING" as const,
+                sourcingLifeSyncStatus: "INVOICE_RECEIVED" as const,
+                sourcingProgressStage: "SOURCED" as const,
+                domesticInvoice: {
+                    carrier: "CJ대한통운",
+                    trackingNumber: "1234567890",
+                    receivedAt: "2026-08-20 10:00",
+                    ...(marketDeliveryMethod === "DELIVERY" ? { uploadedToMarketAt: "2026-08-20 10:10" } : {}),
+                },
+            };
+
+            expect(getProcessActionVisibility(dispatchedOrder, "detail")).toMatchObject({
+                showShippingProcess: true,
+                showInvoiceEdit: false,
+                showCancel: false,
+            });
+            expect(getProcessActionVisibility(dispatchedOrder, "list")).toMatchObject({
+                showShippingProcess: true,
+                showProgressView: false,
+                showDeliveryStatus: false,
+                showCancel: false,
+            });
+        },
+    );
+
+    it.each(["DELIVERED", "PURCHASE_DECIDED"] as const)(
+        "does not offer another market dispatch after the marketplace reaches %s",
+        (marketOrderStatus) => {
+            expect(getProcessActionVisibility({
+                status: "READY_TO_SHIP",
+                marketType: "naver",
+                marketDeliveryMethod: "DIRECT_DELIVERY",
+                marketOrderStatus,
+                sourcingLifeSyncStatus: "INVOICE_RECEIVED",
+                sourcingProgressStage: "SOURCED",
+                domesticInvoice: {
+                    carrier: "CJ대한통운",
+                    trackingNumber: "1234567890",
+                    receivedAt: "2026-08-20 10:00",
+                },
+            }, "detail")).toMatchObject({
+                showShippingProcess: true,
+                showCancel: false,
+            });
+        },
+    );
+
+    it("locks API invoice editing after dispatch without exposing a market correction action", () => {
+        const shippingOrder = {
+            status: "SHIPPING" as const,
+            marketType: "naver" as const,
+            marketDeliveryMethod: "DELIVERY" as const,
+            marketOrderStatus: "DELIVERING" as const,
+            sourcingLifeSyncStatus: "PAID" as const,
+            sourcingProgressStage: "SOURCED" as const,
+        };
+
+        expect(getProcessActionVisibility(shippingOrder, "list")).toMatchObject({
+            showProgressView: false,
+            showDeliveryStatus: false,
+            showShippingProcess: false,
+        });
+        const detailVisibility = getProcessActionVisibility(shippingOrder, "detail");
+        expect(detailVisibility).toMatchObject({
+            showProgressView: true,
+            showInvoiceEdit: false,
+            sourcingProgressActionLabel: "소싱상품관리",
+        });
+        expect(detailVisibility).not.toHaveProperty("showMarketAdminCorrection");
+    });
+
+    it.each(["DIRECT_DELIVERY", "OVERSEAS_OTHER_DELIVERY"] as const)(
+        "allows the actual invoice to replace provisional %s processing",
+        (marketDeliveryMethod) => {
+            expect(getProcessActionVisibility({
+                status: "SHIPPING",
+                marketType: "naver",
+                marketDeliveryMethod,
+                marketOrderStatus: "DELIVERING",
+                sourcingLifeSyncStatus: "PAID",
+                sourcingProgressStage: "DOMESTIC_SHIPPING",
+                shippingProcessStarted: true,
+                domesticInvoice: {
+                    carrier: "CJ대한통운",
+                    trackingNumber: "1234567890",
+                    receivedAt: "2026-08-20 10:00",
+                },
+            }, "detail")).toMatchObject({
+                showShippingProcess: false,
+                showInvoiceEdit: true,
+            });
+        },
+    );
+
+    it("provides demo orders for both provisional processing and actual-invoice replacement", () => {
+        const beforeDomesticShipping = mockOrders.find((order) => order.id === "ORD-20260618-0045");
+        expect(beforeDomesticShipping).toMatchObject({
+            status: "SHIPPING",
+            marketOrderStatus: "DELIVERING",
+            marketDeliveryMethod: "DIRECT_DELIVERY",
+            sourcingProgressStage: "EXTERNAL_PURCHASE",
+            domesticInvoice: {
+                trackingNumber: "512606180045",
+            },
+        });
+        expect(getProcessActionVisibility(beforeDomesticShipping!, "detail").showInvoiceEdit).toBe(false);
+
+        const domesticShipping = mockOrders.find((order) => order.id === "ORD-20260618-0054");
+        expect(domesticShipping).toMatchObject({
+            status: "SHIPPING",
+            marketOrderStatus: "DELIVERING",
+            marketDeliveryMethod: "OVERSEAS_OTHER_DELIVERY",
+            sourcingProgressStage: "DOMESTIC_SHIPPING",
+            domesticInvoice: {
+                trackingNumber: "512606180054",
+            },
+        });
+        expect(getProcessActionVisibility(domesticShipping!, "detail").showInvoiceEdit).toBe(true);
+
+        const corrected = mockOrders.find((order) => order.id === "ORD-20260618-0055");
+        expect(corrected).toMatchObject({
+            status: "SHIPPING",
+            marketOrderStatus: "DELIVERING",
+            marketDeliveryMethod: "DELIVERY",
+            sourcingProgressStage: "DOMESTIC_SHIPPING",
+            domesticInvoice: {
+                carrier: "CJ대한통운",
+                trackingNumber: "512606180055",
+                uploadMode: "crawler",
+            },
+        });
+        expect(getProcessActionVisibility(corrected!, "detail").showInvoiceEdit).toBe(false);
+    });
+
+    it("locks invoice editing as soon as shipping processing starts", () => {
+        expect(getProcessActionVisibility({
+            status: "SHIPPING",
+            marketType: "naver",
+            marketDeliveryMethod: "DELIVERY",
+            marketOrderStatus: "PAYED",
+            sourcingLifeSyncStatus: "PAID",
+            sourcingProgressStage: "SOURCED",
+            shippingProcessStarted: true,
+            domesticInvoice: {
+                carrier: "CJ대한통운",
+                trackingNumber: "1234567890",
+                receivedAt: "2026-08-21 16:00",
+            },
+        }, "detail")).toMatchObject({
+            showInvoiceEdit: false,
+        });
+    });
+
+    it("hides unavailable edit and manual-purchase actions for live orders", () => {
+        expect(getProcessActionVisibility({
+            status: "PREPARING",
+            marketType: "naver",
+            dataSource: "api",
+            sourcingProgressStage: "MATCHED",
+        }, "detail")).toMatchObject({
+            showManualPurchase: false,
         });
     });
 
@@ -342,26 +879,100 @@ describe("process-column result labels", () => {
         expect(getProcessResultLabel({ status: "CANCELED" })).toBe("주문취소");
     });
 
-    it("keeps payment-complete and delivered views without logistics-stage modals", () => {
-        expect(getProcessActionAvailability({
+    it("shows payment products and delivery tracking in detail only", () => {
+        const chinaShippingOrder = {
             status: "SHIPPING",
             marketType: "naver",
             sourcingLifeSyncStatus: "INVOICE_RECEIVED",
             sourcingProgressStage: "CHINA_SHIPPING",
-        })).toMatchObject({
-            canViewSourcingProgress: false,
-            sourcingProgressView: undefined,
+        } as const;
+
+        expect(getProcessActionAvailability(chinaShippingOrder)).toMatchObject({
+            canViewSourcingProgress: true,
+            sourcingProgressView: {
+                actionLabel: "소싱상품관리",
+            },
+            canViewDeliveryProgress: true,
+            deliveryProgressView: {
+                label: "중국배송중",
+                currentStepIndex: 1,
+            },
         });
-        expect(getSourcingProgressViewMeta({ sourcingProgressStage: "CHINA_SHIPPING" })).toBeUndefined();
-        expect(getSourcingProgressViewMeta({ sourcingProgressStage: "CUSTOMS_CLEARANCE" })).toBeUndefined();
-        expect(getSourcingProgressViewMeta({ sourcingProgressStage: "DOMESTIC_SHIPPING" })).toBeUndefined();
+        expect(getProcessActionVisibility(chinaShippingOrder, "list")).toMatchObject({
+            showDeliveryStatus: false,
+            showProgressView: false,
+        });
+        expect(getProcessActionVisibility(chinaShippingOrder, "detail")).toMatchObject({
+            showDeliveryStatus: true,
+        });
+        expect(getProcessActionAvailability({
+            ...chinaShippingOrder,
+            sourcingProgressStage: "CUSTOMS_CLEARANCE",
+        }).deliveryProgressView).toMatchObject({ label: "통관 중", currentStepIndex: 2 });
+        expect(getProcessActionAvailability({
+            ...chinaShippingOrder,
+            sourcingProgressStage: "DOMESTIC_SHIPPING",
+        }).deliveryProgressView).toMatchObject({ label: "국내 배송중", currentStepIndex: 3 });
+        expect(getSourcingProgressViewMeta({ sourcingProgressStage: "PAYMENT_WAITING" })).toMatchObject({
+            label: "결제대기",
+            description: expect.stringContaining("중국 판매자"),
+        });
         expect(getSourcingProgressViewMeta({ sourcingProgressStage: "SOURCED" })).toMatchObject({
             label: "결제완료",
-            actionLabel: "결제완료 보기",
+            actionLabel: "소싱상품관리",
+            description: expect.stringContaining("판매자 채팅"),
         });
         expect(getSourcingProgressViewMeta({ sourcingProgressStage: "DELIVERED" })).toMatchObject({
             label: "배송완료",
-            actionLabel: "배송완료 보기",
+            actionLabel: "소싱상품관리",
+            description: expect.stringContaining("중국 판매자 채팅"),
+        });
+    });
+
+    it.each([
+        "SOURCED",
+        "CHINA_SHIPPING",
+        "CUSTOMS_CLEARANCE",
+        "DOMESTIC_SHIPPING",
+        "DELIVERED",
+    ] as const)("keeps sourcing product management in details throughout the paid stage %s", (sourcingProgressStage) => {
+        const paidOrder = {
+            status: sourcingProgressStage === "DELIVERED" ? "DELIVERED" as const : "SHIPPING" as const,
+            marketType: "naver" as const,
+            sourcingLifeSyncStatus: "PAID" as const,
+            sourcingProgressStage,
+        };
+
+        expect(getProcessActionVisibility(paidOrder, "list")).toMatchObject({
+            showProgressView: false,
+        });
+        expect(getProcessActionVisibility(paidOrder, "detail")).toMatchObject({
+            showProgressView: true,
+            sourcingProgressActionLabel: "소싱상품관리",
+        });
+    });
+
+    it("keeps cumulative delivery history in details after delivery and return completion", () => {
+        const deliveredOrder = {
+            status: "DELIVERED",
+            marketType: "naver",
+            marketOrderStatus: "DELIVERED",
+            sourcingLifeSyncStatus: "INVOICE_RECEIVED",
+            sourcingProgressStage: "DELIVERED",
+            sourcingLifeOrderId: "SL-DELIVERED-1",
+        } as const;
+        expect(getProcessActionVisibility(deliveredOrder, "list")).toMatchObject({
+            showDeliveryStatus: false,
+            showProgressView: false,
+        });
+        expect(getProcessActionVisibility(deliveredOrder, "detail")).toMatchObject({
+            showDeliveryStatus: true,
+        });
+
+        const completedReturn = mockOrders.find((order) => order.claimType === "RETURN" && order.claimStatus === "반품완료");
+        expect(completedReturn?.deliveryHistory?.some((event) => event.flow === "RETURN")).toBe(true);
+        expect(getProcessActionVisibility(completedReturn!, "detail")).toMatchObject({
+            showDeliveryStatus: true,
         });
     });
 
@@ -392,6 +1003,102 @@ describe("process-column result labels", () => {
 
         expect(deliveryStageOrders.length).toBeGreaterThan(0);
         expect(deliveryStageOrders.every((order) => hasCompletedSourcingPurchase(order))).toBe(true);
+    });
+
+    it("keeps sourcing refund management out of process actions and labels it in the payment product view", () => {
+        const refundOrder = {
+            status: "SHIPPING",
+            marketType: "naver",
+            marketOrderStatus: "PAYED",
+            sourcingLifeSyncStatus: "PAID",
+            sourcingProgressStage: "SOURCED",
+            sourcingLifeOrderId: "SL-ORDER-1",
+            sourcingRefund: {
+                id: "refund-1",
+                providerRefundId: "110000312001",
+                providerPurchaseOrderId: "2608284132117736001",
+                providerStatusCode: 10,
+                purchaseOrderLineId: "200002671001",
+                type: "REFUND_ONLY",
+                goodsStatus: "NOT_SHIPPED",
+                status: "REQUESTED",
+                reasonId: "403769",
+                reasonLabel: "더 이상 원하지 않음",
+                refundFeeCny: 43.86,
+                currency: "CNY",
+                requestedAt: "2026-08-12T10:00:00.000Z",
+                updatedAt: "2026-08-12T10:00:00.000Z",
+            },
+        } as const;
+
+        expect(getProcessActionAvailability(refundOrder)).toMatchObject({
+            canSendInvoice: false,
+            sourcingRefundActive: true,
+        });
+        expect(getProcessActionVisibility(refundOrder, "list")).not.toHaveProperty("showSourcingRefund");
+        expect(getProcessActionVisibility(refundOrder, "detail")).toMatchObject({
+            showRestartSourcingAfterRefund: false,
+        });
+        expect(getProcessActionVisibility(refundOrder, "detail")).not.toHaveProperty("showSourcingRefund");
+        expect(getSourcingRefundActionLabel(refundOrder)).toBe("환불 진행");
+
+        const refundedOrder = {
+            ...refundOrder,
+            domesticInvoice: {
+                carrier: "CJ대한통운",
+                trackingNumber: "1234567890",
+                receivedAt: "2026-08-12 12:00",
+            },
+            sourcingRefund: {
+                ...refundOrder.sourcingRefund,
+                status: "REFUNDED" as const,
+                providerStatusCode: 100,
+            },
+        };
+        expect(getProcessActionAvailability(refundedOrder)).toMatchObject({
+            canSendInvoice: false,
+            sourcingRefundActive: false,
+            sourcingRefundBlocksShipping: true,
+        });
+        expect(getProcessActionVisibility(refundedOrder, "list")).toMatchObject({
+            showRestartSourcingAfterRefund: false,
+        });
+        expect(getProcessActionVisibility(refundedOrder, "detail")).toMatchObject({
+            showRestartSourcingAfterRefund: true,
+        });
+        expect(getProcessActionVisibility(refundedOrder, "list")).not.toHaveProperty("showSourcingRefund");
+        expect(getProcessActionVisibility(refundedOrder, "detail")).not.toHaveProperty("showSourcingRefund");
+        expect(getSourcingRefundActionLabel(refundedOrder)).toBe("환불 내역");
+
+        const requestableOrder = {
+            status: "SHIPPING" as const,
+            marketType: "naver" as const,
+            marketOrderStatus: "PAYED" as const,
+            sourcingLifeSyncStatus: "PAID" as const,
+            sourcingProgressStage: "SOURCED" as const,
+            sourcingLifeOrderId: "SL-ORDER-2",
+            sourcingRefund: undefined,
+            taoWorldPurchase: {
+                distributorId: "2100000927014",
+                purchaseOrderId: "2608284132117736002",
+                purchaseOrderLineId: "200002671002",
+                currency: "CNY" as const,
+                paidAmountCny: 66.23,
+                paidAt: "2026-08-12T10:00:00.000Z",
+            },
+        };
+
+        expect(getProcessActionAvailability(requestableOrder).sourcingRefundAvailability.canOpen).toBe(true);
+        expect(getProcessActionVisibility(requestableOrder, "list")).not.toHaveProperty("showSourcingRefund");
+        expect(getProcessActionVisibility(requestableOrder, "detail")).not.toHaveProperty("showSourcingRefund");
+        expect(getSourcingRefundActionLabel(requestableOrder)).toBe("반품·환불 신청");
+
+        expect(getProcessActionVisibility({
+            status: "READY_TO_SHIP",
+            marketType: "gmarket",
+            sourcingLifeSyncStatus: "NOT_LINKED",
+            sourcingProgressStage: "EXTERNAL_PURCHASE",
+        }, "detail")).not.toHaveProperty("showSourcingRefund");
     });
 });
 

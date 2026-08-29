@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
     Dialog,
     DialogContent,
@@ -203,8 +204,8 @@ export function SellerCancelDialog({
     return (
         <Dialog open={open} onOpenChange={submitting ? undefined : onOpenChange}>
             <DialogContent className="max-w-lg overflow-hidden p-0">
-                <div className="border-b border-red-100 bg-[linear-gradient(135deg,#fff7f7_0%,#ffffff_64%)] px-6 py-5">
-                    <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-red-600">
+                <div className="border-b border-border bg-muted px-6 py-5">
+                    <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-foreground">
                         <ShieldAlert className="h-4 w-4" aria-hidden="true" />
                         High-impact action
                     </div>
@@ -219,7 +220,7 @@ export function SellerCancelDialog({
                 </div>
 
                 <div className="grid gap-5 px-6 py-5">
-                    <div className="rounded-md border border-amber-200 bg-amber-50 px-3.5 py-3 text-xs leading-5 text-amber-950">
+                    <div className="rounded-md border border-border bg-muted px-3.5 py-3 text-xs leading-5 text-foreground">
                         <div className="font-semibold">스마트스토어 API 실행 조건</div>
                         <p className="mt-1">
                             실주문은 계정별 SELLER_CANCEL UAT가 통과된 경우에만 API 명령을 접수합니다.
@@ -227,7 +228,7 @@ export function SellerCancelDialog({
                             이 화면이 마켓 성공 상태를 임의로 만들지 않습니다.
                         </p>
                         {!hasLiveOrders ? (
-                            <p className="mt-1 text-amber-800">현재 선택은 데모 데이터이므로 로컬 시연 상태만 변경됩니다.</p>
+                            <p className="mt-1 text-foreground">현재 선택은 데모 데이터이므로 로컬 시연 상태만 변경됩니다.</p>
                         ) : null}
                     </div>
 
@@ -252,18 +253,18 @@ export function SellerCancelDialog({
                                 {NAVER_SELLER_CANCEL_REASON_OPTIONS.map((option) => (
                                     <SelectItem key={option.value} value={option.value}>
                                         <span>{option.label}</span>
-                                        <span className="ml-2 font-mono text-[10px] text-slate-400">{option.value}</span>
+                                        <span className="ml-2 font-mono text-xs text-muted-foreground">{option.value}</span>
                                     </SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
-                        {errors.reasonCode ? <p className="text-xs text-red-600">{errors.reasonCode}</p> : null}
+                        {errors.reasonCode ? <p className="text-xs text-foreground">{errors.reasonCode}</p> : null}
                     </div>
 
                     <div className="grid gap-2">
                         <div className="flex items-center justify-between gap-3">
                             <Label htmlFor="seller-cancel-detail">상세 사유</Label>
-                            <span className="text-[11px] tabular-nums text-slate-400">
+                            <span className="text-xs tabular-nums text-muted-foreground">
                                 {normalizeDetail(reasonDetail).length}/500
                             </span>
                         </div>
@@ -281,19 +282,19 @@ export function SellerCancelDialog({
                             aria-invalid={Boolean(errors.reasonDetail)}
                             className="min-h-24 resize-none"
                         />
-                        {errors.reasonDetail ? <p className="text-xs text-red-600">{errors.reasonDetail}</p> : null}
+                        {errors.reasonDetail ? <p className="text-xs text-foreground">{errors.reasonDetail}</p> : null}
                     </div>
 
                     {orderedQuantity === undefined ? (
-                        <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm">
-                            <span className="text-slate-600">취소 수량</span>
-                            <span className="font-semibold text-slate-950">각 주문의 전체 수량</span>
+                        <div className="flex items-center justify-between rounded-md border border-border bg-muted px-3.5 py-3 text-sm">
+                            <span className="text-muted-foreground">취소 수량</span>
+                            <span className="font-semibold text-foreground">각 주문의 전체 수량</span>
                         </div>
                     ) : (
                         <div className="grid gap-2">
                             <div className="flex items-center justify-between gap-3">
                                 <Label htmlFor="seller-cancel-quantity">취소 수량</Label>
-                                <span className="text-xs text-slate-500">주문 수량 {orderedQuantity}개</span>
+                                <span className="text-xs text-muted-foreground">주문 수량 {orderedQuantity}개</span>
                             </div>
                             <Input
                                 id="seller-cancel-quantity"
@@ -309,22 +310,20 @@ export function SellerCancelDialog({
                                 disabled={submitting}
                                 aria-invalid={Boolean(errors.quantity)}
                             />
-                            {errors.quantity ? <p className="text-xs text-red-600">{errors.quantity}</p> : null}
+                            {errors.quantity ? <p className="text-xs text-foreground">{errors.quantity}</p> : null}
                         </div>
                     )}
 
                     {submitError ? (
-                        <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                            {submitError}
-                        </div>
+                        <Alert><AlertDescription>{submitError}</AlertDescription></Alert>
                     ) : null}
                 </div>
 
-                <DialogFooter className="border-t border-slate-100 bg-slate-50/70 px-6 py-4">
+                <DialogFooter className="border-t border-border bg-muted/70 px-6 py-4">
                     <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
                         닫기
                     </Button>
-                    <Button className="bg-red-600 hover:bg-red-700" onClick={submit} disabled={submitting}>
+                    <Button className="bg-primary hover:bg-primary" onClick={submit} disabled={submitting}>
                         {submitting ? "명령 접수 중..." : "판매자 취소 명령 접수"}
                     </Button>
                 </DialogFooter>

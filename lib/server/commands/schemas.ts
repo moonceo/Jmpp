@@ -24,6 +24,22 @@ export const directDeliveryPayloadSchema = z.object({
     dispatchAt: z.iso.datetime({ offset: true }),
 }).strict();
 
+export const shippingProcessPayloadSchema = z.object({
+    requestedMethod: z.enum(["DELIVERY", "DIRECT_DELIVERY", "OVERSEAS_OTHER_DELIVERY"]),
+    dispatchAt: z.iso.datetime({ offset: true }),
+    carrierCode: nonControlText(50).optional(),
+    trackingNumber: nonControlText(100).optional(),
+}).strict().superRefine((value, context) => {
+    if (value.requestedMethod !== "OVERSEAS_OTHER_DELIVERY") return;
+    if (!value.carrierCode || !value.trackingNumber) {
+        context.addIssue({
+            code: "custom",
+            message: "Overseas other delivery requires carrierCode and trackingNumber.",
+            path: ["trackingNumber"],
+        });
+    }
+});
+
 export const sellerCancelPayloadSchema = z.object({
     reasonCode: z.enum(NAVER_SELLER_CANCEL_REASONS),
     reasonDetail: nonControlText(500).optional(),
@@ -50,6 +66,11 @@ export const orderItemCommandRequestSchema = z.discriminatedUnion("type", [
         ...commandBase,
         type: z.literal("DIRECT_DELIVERY"),
         payload: directDeliveryPayloadSchema,
+    }).strict(),
+    z.object({
+        ...commandBase,
+        type: z.literal("SHIPPING_PROCESS"),
+        payload: shippingProcessPayloadSchema,
     }).strict(),
     z.object({
         ...commandBase,

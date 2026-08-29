@@ -1,6 +1,7 @@
 import { Inquiry } from "@/types/inquiry";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Item, ItemActions, ItemContent, ItemMedia } from "@/components/ui/item";
 import { MARKET_LABELS, MARKET_OUTLINE_BADGE_CLASSES } from "@/lib/constants/orders";
 import { Clock } from "lucide-react";
 import Image from "next/image";
@@ -29,19 +30,19 @@ export function InquiryListItem({ inquiry, onReply }: InquiryListItemProps) {
     const timeAgo = formatDistanceToNow(new Date(inquiry.createdAt), { addSuffix: true, locale: ko });
 
     return (
-        <div className="flex gap-4 p-4 border rounded-lg bg-card hover:bg-accent/50 transition-colors">
+        <Item variant="outline" className="items-start gap-4 bg-card hover:bg-accent/50">
             {/* 1. Market & Product Thumbnail */}
-            <div className="flex flex-col gap-2 items-center min-w-[80px]">
+            <ItemMedia className="min-w-[80px] flex-col gap-2">
                 {getMarketBadge(inquiry.marketType)}
                 {inquiry.product && (
                     <div className="relative h-16 w-16 rounded overflow-hidden border bg-muted">
-                        <Image src={inquiry.product.thumbnail} alt="Product" fill className="object-cover" />
+                        <Image src={inquiry.product.thumbnail} alt="Product" fill sizes="64px" className="object-cover" />
                     </div>
                 )}
-            </div>
+            </ItemMedia>
 
             {/* 2. Content */}
-            <div className="flex-1 space-y-1 min-w-0">
+            <ItemContent className="min-w-0 space-y-1">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <span className="font-semibold text-foreground">{inquiry.type}</span>
                     <span>•</span>
@@ -62,18 +63,18 @@ export function InquiryListItem({ inquiry, onReply }: InquiryListItemProps) {
                         {timeAgo}
                     </div>
                 </div>
-            </div>
+            </ItemContent>
 
             {/* 3. Action */}
-            <div className="flex items-center self-center pl-2">
+            <ItemActions className="self-center pl-2">
                 {inquiry.status === 'answered' ? (
-                    <Button variant="ghost" disabled className="text-green-600 bg-green-50">
+                    <Button variant="ghost" disabled className="text-foreground bg-muted">
                         답변완료
                     </Button>
                 ) : (
                     inquiry.isExternal ? (
-                        <Button variant="outline" size="sm" onClick={() => window.open(inquiry.externalLink, '_blank')}>
-                            문의 바로가기
+                        <Button asChild variant="outline" size="sm">
+                            <a href={inquiry.externalLink} target="_blank" rel="noreferrer">문의 바로가기</a>
                         </Button>
                     ) : (
                         <Button size="sm" onClick={() => onReply(inquiry)}>
@@ -81,8 +82,8 @@ export function InquiryListItem({ inquiry, onReply }: InquiryListItemProps) {
                         </Button>
                     )
                 )}
-            </div>
-        </div>
+            </ItemActions>
+        </Item>
     );
 }
 

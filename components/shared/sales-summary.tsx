@@ -2,6 +2,8 @@
 
 import { useDashboardMetrics } from "@/hooks/use-dashboard-data";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { DollarSign, CreditCard, TrendingUp, Wallet, ShoppingCart, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -22,7 +24,8 @@ interface SummaryItemProps {
 
 function SummaryItem({ label, value, icon, description, valueClassName, unit = "원" }: SummaryItemProps) {
     return (
-        <div className="flex items-center gap-4 p-4 rounded-lg bg-muted/40 border">
+        <Card className="gap-0 py-0">
+            <CardContent className="flex items-center gap-4 p-4">
             <div className="p-2 bg-background rounded-full border shadow-sm text-muted-foreground">
                 {icon}
             </div>
@@ -32,7 +35,9 @@ function SummaryItem({ label, value, icon, description, valueClassName, unit = "
                     <TooltipProvider>
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                                <Button type="button" variant="ghost" size="icon-sm" className="size-6" aria-label={`${label} 설명`}>
+                                    <Info className="size-4 text-muted-foreground" />
+                                </Button>
                             </TooltipTrigger>
                             <TooltipContent>
                                 <p className="text-xs">{description}</p>
@@ -44,7 +49,8 @@ function SummaryItem({ label, value, icon, description, valueClassName, unit = "
                     {new Intl.NumberFormat('ko-KR').format(value)}{unit}
                 </span>
             </div>
-        </div>
+            </CardContent>
+        </Card>
     );
 }
 
@@ -82,7 +88,7 @@ export function SalesSummary() {
                 value={metrics.expectedMargin}
                 icon={<TrendingUp className="h-4 w-4" />}
                 description="정산예정금에서 비용을 뺀 수익성 지표입니다."
-                valueClassName="text-blue-600 dark:text-blue-400"
+                valueClassName="text-foreground dark:text-foreground"
             />
             <SummaryItem
                 label="주문건수"
@@ -99,7 +105,15 @@ function SummarySkeleton() {
     return (
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
             {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="h-20 rounded-lg bg-muted/40 border animate-pulse" />
+                <Card key={i} className="h-20 gap-0 py-0">
+                    <CardContent className="flex h-full items-center gap-4 p-4">
+                        <Skeleton className="size-10 rounded-full" />
+                        <div className="flex-1 space-y-2">
+                            <Skeleton className="h-3 w-20" />
+                            <Skeleton className="h-5 w-28" />
+                        </div>
+                    </CardContent>
+                </Card>
             ))}
         </div>
     );

@@ -1,4 +1,4 @@
-import { useDailySales, useDashboardMetrics } from "@/hooks/use-dashboard-data";
+import { useDailySales } from "@/hooks/use-dashboard-data";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboardStore } from "@/lib/stores/dashboard-store";
@@ -9,8 +9,7 @@ import {
     format,
     isSameMonth,
     startOfWeek,
-    endOfWeek,
-    isSameDay
+    endOfWeek
 } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -42,10 +41,10 @@ export function SalesCalendar() {
     // Helper to determine heat map color
     const getHeatmapColor = (sales: number) => {
         if (sales === 0) return "";
-        if (sales < 500000) return "bg-blue-50 text-blue-900 dark:bg-blue-950/30 dark:text-blue-200";
-        if (sales < 1000000) return "bg-blue-100 text-blue-900 dark:bg-blue-900/40 dark:text-blue-100";
-        if (sales < 2000000) return "bg-blue-200 text-blue-900 dark:bg-blue-800/50 dark:text-blue-50";
-        return "bg-blue-300 text-blue-950 dark:bg-blue-700/60 dark:text-white font-semibold";
+        if (sales < 500000) return "bg-muted text-foreground dark:bg-primary/30 dark:text-foreground";
+        if (sales < 1000000) return "bg-muted text-foreground dark:bg-primary/40 dark:text-foreground";
+        if (sales < 2000000) return "bg-muted text-foreground dark:bg-primary/50 dark:text-foreground";
+        return "bg-muted text-foreground dark:bg-primary/60 dark:text-primary-foreground font-semibold";
     };
 
     if (isLoading) {
@@ -69,7 +68,7 @@ export function SalesCalendar() {
 
                 {/* Days Grid */}
                 <div className="grid grid-cols-7 gap-1 auto-rows-fr">
-                    {calendarDays.map((day, idx) => {
+                    {calendarDays.map((day) => {
                         const isCurrentMonth = isSameMonth(day, monthStart);
                         const sales = isCurrentMonth ? getSalesForDate(day) : 0;
                         const hasSales = sales > 0;
@@ -91,7 +90,7 @@ export function SalesCalendar() {
                                     {format(day, 'd')}
                                 </div>
                                 {isCurrentMonth && hasSales && (
-                                    <div className="text-[10px] sm:text-xs font-medium text-center truncate">
+                                    <div className="text-xs sm:text-xs font-medium text-center truncate">
                                         {new Intl.NumberFormat('ko-KR', { notation: "compact", maximumFractionDigits: 1 }).format(sales)}
                                     </div>
                                 )}

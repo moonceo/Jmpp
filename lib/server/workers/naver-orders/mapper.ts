@@ -204,11 +204,14 @@ function normalizedStatus(rawStatus: string): MappedNaverOrder["normalizedStatus
 
 function deliveryMethod(
   value: unknown,
-): "DELIVERY" | "DIRECT_DELIVERY" | null {
+  carrierValue?: unknown,
+): "DELIVERY" | "DIRECT_DELIVERY" | "OVERSEAS_OTHER_DELIVERY" | null {
   const method = nonEmptyString(value)?.toUpperCase();
+  const carrier = nonEmptyString(carrierValue)?.toUpperCase();
   if (method === "DIRECT_DELIVERY" || method === "DIRECT") {
     return "DIRECT_DELIVERY";
   }
+  if ((method === "DELIVERY" || method === "PARCEL") && carrier === "CH1") return "OVERSEAS_OTHER_DELIVERY";
   if (method === "DELIVERY" || method === "PARCEL") return "DELIVERY";
   return null;
 }
@@ -245,9 +248,18 @@ export function mapNaverProductOrder(
     nonnegativeNumber(productOrder.unitPrice) ??
     (totalPaymentAmount === null ? 0 : totalPaymentAmount / quantity);
   const itemTotal = totalPaymentAmount ?? unitPrice * quantity;
+  const paymentShippingFee = nonnegativeNumber(productOrder.deliveryFeeAmount) ?? 0;
   const orderDate = isoDate(order.orderDate);
   const paymentDate = isoDate(order.paymentDate);
   const status = normalizedStatus(marketStatusRaw);
+  const mappedDeliveryMethod = deliveryMethod(
+    productOrder.deliveryMethod ?? productOrder.expectedDeliveryMethod,
+    productOrder.deliveryCompanyCode ?? productOrder.deliveryCompany,
+  );
+  const internalWorkStatus = (mappedDeliveryMethod === "DIRECT_DELIVERY" || mappedDeliveryMethod === "OVERSEAS_OTHER_DELIVERY")
+    && (status === "SHIPPING" || status === "DELIVERED")
+    ? "PREPARING"
+    : status;
   const safeRaw = redactSensitiveRawFields(detail) as Record<string, unknown>;
   const safeChange = redactSensitiveRawFields(change);
 
@@ -299,19 +311,27 @@ export function mapNaverProductOrder(
         quantity,
         unitPrice,
         itemTotal,
-        internalWorkStatus: status,
+        paymentShippingFee,
+        internalWorkStatus,
         marketStatusRaw,
         marketFulfillmentStatus:
           nonEmptyString(productOrder.deliveryStatus) ?? marketStatusRaw,
-        marketDeliveryMethod: deliveryMethod(productOrder.deliveryMethod),
-        domesticCarrierCode: nonEmptyString(productOrder.deliveryCompanyCode),
-        domesticTrackingNumber: nonEmptyString(productOrder.trackingNumber),
+        marketDeliveryMethod: mappedDeliveryMethod,
+        domesticCarrierCode: mappedDeliveryMethod === "OVERSEAS_OTHER_DELIVERY" ? null : nonEmptyString(productOrder.deliveryCompanyCode),
+        domesticTrackingNumber: mappedDeliveryMethod === "OVERSEAS_OTHER_DELIVERY" ? null : nonEmptyString(productOrder.trackingNumber),
         sourceUpdatedAt,
         attributes: {
           market: "NAVER",
+          paymentShippingFee,
           lastChangedType: change.lastChangedType,
           claimType: productOrder.claimType ?? change.claimType ?? null,
           claimStatus: productOrder.claimStatus ?? change.claimStatus ?? null,
+          marketShippingReference: mappedDeliveryMethod === "OVERSEAS_OTHER_DELIVERY" ? {
+            carrier: "해외기타택배",
+            carrierCode: nonEmptyString(productOrder.deliveryCompanyCode) ?? "CH1",
+            trackingNumber: nonEmptyString(productOrder.trackingNumber),
+            registeredAt: sourceUpdatedAt,
+          } : null,
           raw: {
             change: safeChange,
             productOrder: safeRaw.productOrder ?? {},

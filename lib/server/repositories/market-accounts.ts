@@ -4,6 +4,7 @@ import type { TransactionClient } from "@/lib/server/db";
 import { ApiError } from "@/lib/server/http/api-error";
 import { requireEnabledMarketAdapter } from "@/lib/server/market-accounts/adapter-registry";
 import type { NaverCredentialsInput } from "@/lib/server/market-accounts/credentials";
+import { resolveShippingProcessPreference } from "@/lib/server/market-accounts/settings";
 import { encryptCredential } from "@/lib/server/security";
 import type { OrderMarketCode } from "@/lib/server/repositories/orders";
 
@@ -173,6 +174,10 @@ export async function createMarketAccount(
         secretType,
     });
     const fingerprint = createHash("sha256").update(plaintext, "utf8").digest("hex");
+    const normalizedSettings = {
+        ...(input.settings ?? {}),
+        shippingProcessPreference: resolveShippingProcessPreference(input.marketCode, input.settings),
+    };
     const result = await client.query<MarketAccountRow>(
         `INSERT INTO market_accounts (
              id, tenant_id, market_code, store_name, seller_id,
@@ -186,7 +191,7 @@ export async function createMarketAccount(
             input.storeName,
             input.sellerId,
             input.externalAccountId ?? null,
-            JSON.stringify(input.settings ?? {}),
+            JSON.stringify(normalizedSettings),
         ],
     );
 
@@ -239,6 +244,12 @@ export async function updateMarketAccount(
     if (!current) throw new Error("MARKET_ACCOUNT_NOT_FOUND");
     if (current.version !== input.expectedVersion) throw new Error("MARKET_ACCOUNT_VERSION_CONFLICT");
 
+    const normalizedSettings = input.settings === undefined
+        ? undefined
+        : {
+            ...input.settings,
+            shippingProcessPreference: resolveShippingProcessPreference(current.market_code, input.settings),
+        };
     const result = await client.query<MarketAccountRow>(
         `UPDATE market_accounts
             SET store_name = COALESCE($3::text, store_name),
@@ -254,7 +265,7 @@ export async function updateMarketAccount(
             input.marketAccountId,
             input.storeName ?? null,
             input.isActive ?? null,
-            input.settings === undefined ? null : JSON.stringify(input.settings),
+            normalizedSettings === undefined ? null : JSON.stringify(normalizedSettings),
             input.expectedVersion,
         ],
     );

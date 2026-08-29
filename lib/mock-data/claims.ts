@@ -2,9 +2,15 @@ import type {
     ClaimActionAvailabilityMap,
     ClaimDetail,
     ClaimProviderAction,
+    ClaimRequester,
+    ClaimSource,
+    PurchaseCompensationStatus,
     ClaimStatus,
     ClaimType,
 } from "@/lib/server/claims/types";
+import type { Order } from "@/types/order";
+
+export const DEMO_SELLER_CANCEL_STORAGE_KEY = "commerce-life.demo-seller-cancel-claims";
 
 export type DemoClaimActionKey =
     | "APPROVE_CANCEL"
@@ -82,7 +88,13 @@ interface DemoSeed {
     overdue?: boolean;
     orderStatus: string;
     fulfillmentStatus: string;
+    sourcingStatus?: string;
+    purchaseCompensationStatus?: PurchaseCompensationStatus;
+    purchaseCompensationReference?: string;
     workflow: DemoClaimWorkflow;
+    source?: ClaimSource;
+    requesterType?: ClaimRequester;
+    eventType?: string;
 }
 
 function createClaim(seed: DemoSeed): DemoClaimDetail {
@@ -103,8 +115,8 @@ function createClaim(seed: DemoSeed): DemoClaimDetail {
         externalOrderNumber: orderNumber,
         externalClaimId: `${seed.marketCode}-${seed.claimType}-${10000 + seed.index}`,
         claimType: seed.claimType,
-        source: "MARKET",
-        requesterType: "CUSTOMER",
+        source: seed.source ?? "MARKET",
+        requesterType: seed.requesterType ?? "CUSTOMER",
         faultType: seed.reasonCode.includes("DEFECT") || seed.reasonCode.includes("WRONG") ? "SELLER" : "CUSTOMER",
         normalizedStatus: seed.status,
         marketStatusRaw: seed.rawStatus,
@@ -115,8 +127,8 @@ function createClaim(seed: DemoSeed): DemoClaimDetail {
         deadlineOverdue: seed.overdue ?? false,
         resolutionType: seed.claimType === "EXCHANGE" ? "REPLACEMENT" : "REFUND",
         resolutionStatus: "PENDING",
-        purchaseCompensationStatus: "NOT_REQUIRED",
-        purchaseCompensationReference: null,
+        purchaseCompensationStatus: seed.purchaseCompensationStatus ?? "NOT_REQUIRED",
+        purchaseCompensationReference: seed.purchaseCompensationReference ?? null,
         purchaseCompensationNextActionAt: null,
         requestedAt: seed.requestedAt,
         sourceUpdatedAt: seed.requestedAt,
@@ -131,7 +143,7 @@ function createClaim(seed: DemoSeed): DemoClaimDetail {
         rawSnapshotAvailable: true,
         orderStatusAtRequest: seed.orderStatus,
         itemStatusAtRequest: seed.orderStatus,
-        sourcingStatusAtRequest: "PURCHASE_COMPLETED",
+        sourcingStatusAtRequest: seed.sourcingStatus ?? "NOT_PURCHASED",
         fulfillmentStatusAtRequest: seed.fulfillmentStatus,
         reviewedAt: null,
         approvedAt: null,
@@ -151,7 +163,7 @@ function createClaim(seed: DemoSeed): DemoClaimDetail {
             orderedQuantity: quantity,
             requestedQuantity: quantity,
             itemStatusAtRequest: seed.orderStatus,
-            sourcingStatusAtRequest: "PURCHASE_COMPLETED",
+            sourcingStatusAtRequest: seed.sourcingStatus ?? "NOT_PURCHASED",
             fulfillmentStatusAtRequest: seed.fulfillmentStatus,
             normalizedStatus: seed.status,
             marketStatusRaw: seed.rawStatus,
@@ -166,8 +178,8 @@ function createClaim(seed: DemoSeed): DemoClaimDetail {
         events: [{
             id: eventId,
             externalEventId: `${seed.marketCode}-EVENT-${10000 + seed.index}`,
-            eventType: "BUYER_CLAIM_REQUESTED",
-            eventSource: "MARKET",
+            eventType: seed.eventType ?? "BUYER_CLAIM_REQUESTED",
+            eventSource: seed.source ?? "MARKET",
             fromStatus: null,
             toStatus: seed.status,
             marketStatusRaw: seed.rawStatus,
@@ -196,6 +208,9 @@ export const DEMO_BUYER_CLAIMS: DemoClaimDetail[] = [
         deadlineAt: "2026-07-16T06:00:00.000Z",
         orderStatus: "PAYED",
         fulfillmentStatus: "NOT_DISPATCHED",
+        sourcingStatus: "PURCHASE_COMPLETED",
+        purchaseCompensationStatus: "NEEDS_ATTENTION",
+        purchaseCompensationReference: "SL-REFUND-DEMO-0001",
         workflow: {
             stage: "출고 전 취소 승인 대기",
             nextWork: "발송 여부를 다시 확인한 뒤 취소 승인",
@@ -242,6 +257,9 @@ export const DEMO_BUYER_CLAIMS: DemoClaimDetail[] = [
         deadlineAt: "2026-07-17T06:00:00.000Z",
         orderStatus: "DELIVERED",
         fulfillmentStatus: "한진택배 5312-****-8891",
+        sourcingStatus: "PURCHASE_COMPLETED",
+        purchaseCompensationStatus: "IN_PROGRESS",
+        purchaseCompensationReference: "SL-REFUND-DEMO-0003",
         workflow: {
             stage: "반품 회수 중",
             nextWork: "회수 도착 후 수량·훼손을 검수하고 입고 완료",
@@ -266,6 +284,9 @@ export const DEMO_BUYER_CLAIMS: DemoClaimDetail[] = [
         overdue: true,
         orderStatus: "DELIVERED",
         fulfillmentStatus: "CJ대한통운 6890-****-7710",
+        sourcingStatus: "PURCHASE_COMPLETED",
+        purchaseCompensationStatus: "SUCCEEDED",
+        purchaseCompensationReference: "SL-REFUND-DEMO-0004",
         workflow: {
             stage: "판매자 창고 입고 확인",
             nextWork: "불량을 확인하고 반품 승인하여 환불 단계 진행",
@@ -368,4 +389,145 @@ export const DEMO_BUYER_CLAIMS: DemoClaimDetail[] = [
             replacementShipment: "품절",
         },
     }),
+];
+
+const MARKET_CODE_BY_TYPE: Record<Order["marketType"], DemoClaimDetail["marketCode"]> = {
+    naver: "NAVER",
+    coupang: "COUPANG",
+    "11st": "ELEVEN_STREET",
+    gmarket: "GMARKET",
+    auction: "AUCTION",
+};
+
+export function createDemoSellerCancelClaim(
+    order: Order,
+    canceledAt: string,
+    reason = "판매자 주문취소",
+): DemoClaimDetail {
+    const sourceOccurredAt = new Date(canceledAt.replace(" ", "T")).toISOString();
+    const purchased = ["PAID", "INVOICE_RECEIVED"].includes(order.sourcingLifeSyncStatus);
+
+    return {
+        id: `demo-seller-cancel-${order.id}`,
+        marketAccountId: order.marketAccountId ?? `demo-${order.marketType}`,
+        marketCode: MARKET_CODE_BY_TYPE[order.marketType],
+        storeName: order.storeName,
+        salesOrderId: order.id,
+        externalOrderId: order.marketOrderId,
+        externalOrderNumber: order.marketOrderId,
+        externalClaimId: `SELLER-CANCEL-${order.id}`,
+        claimType: "CANCEL",
+        source: "SELLER",
+        requesterType: "SELLER",
+        faultType: "SELLER",
+        normalizedStatus: "COMPLETED",
+        marketStatusRaw: "SELLER_CANCEL_COMPLETED",
+        marketReasonCode: "SELLER_CANCEL",
+        marketReasonMasked: reason,
+        deadlineAt: null,
+        deadlineType: null,
+        deadlineOverdue: false,
+        resolutionType: "REFUND",
+        resolutionStatus: "SUCCEEDED",
+        purchaseCompensationStatus: purchased ? "NEEDS_ATTENTION" : "NOT_REQUIRED",
+        purchaseCompensationReference: purchased ? `SL-REFUND-${order.id}` : null,
+        purchaseCompensationNextActionAt: purchased ? sourceOccurredAt : null,
+        requestedAt: sourceOccurredAt,
+        sourceUpdatedAt: sourceOccurredAt,
+        buyerNameMasked: order.buyerName,
+        recipientNameMasked: order.recipient.name,
+        affectedLineCount: 1,
+        totalClaimQuantity: order.product.quantity,
+        version: "1",
+        actionAvailability: unavailableActions(),
+        providerProcessingId: null,
+        providerErrorCode: null,
+        rawSnapshotAvailable: true,
+        orderStatusAtRequest: order.status,
+        itemStatusAtRequest: order.status,
+        sourcingStatusAtRequest: order.sourcingLifeSyncStatus,
+        fulfillmentStatusAtRequest: order.domesticInvoice
+            ? `${order.domesticInvoice.carrier} ${order.domesticInvoice.trackingNumber}`
+            : "미출고",
+        reviewedAt: sourceOccurredAt,
+        approvedAt: sourceOccurredAt,
+        rejectedAt: null,
+        collectionStartedAt: null,
+        receivedAt: null,
+        resolvedAt: sourceOccurredAt,
+        completedAt: sourceOccurredAt,
+        purchaseCompensationCompletedAt: null,
+        lines: [{
+            id: `demo-seller-cancel-line-${order.id}`,
+            orderItemId: order.id,
+            externalOrderItemId: order.product.productOrderId ?? order.product.id,
+            externalClaimLineId: `SELLER-CANCEL-LINE-${order.id}`,
+            productName: order.product.name,
+            optionName: order.product.optionName,
+            orderedQuantity: order.product.quantity,
+            requestedQuantity: order.product.quantity,
+            itemStatusAtRequest: order.status,
+            sourcingStatusAtRequest: order.sourcingLifeSyncStatus,
+            fulfillmentStatusAtRequest: order.domesticInvoice ? "국내송장 있음" : "미출고",
+            normalizedStatus: "COMPLETED",
+            marketStatusRaw: "SELLER_CANCEL_COMPLETED",
+            marketReasonCode: "SELLER_CANCEL",
+            marketReasonMasked: reason,
+            resolutionType: "REFUND",
+            resolutionStatus: "SUCCEEDED",
+            refundAmount: String(order.paymentPrice),
+            refundCurrency: "KRW",
+            version: "1",
+        }],
+        events: [{
+            id: `demo-seller-cancel-event-${order.id}`,
+            externalEventId: null,
+            eventType: "SELLER_CANCEL_COMPLETED",
+            eventSource: "SELLER",
+            fromStatus: null,
+            toStatus: "COMPLETED",
+            marketStatusRaw: "SELLER_CANCEL_COMPLETED",
+            marketReasonCode: "SELLER_CANCEL",
+            sourceOccurredAt,
+            receivedAt: sourceOccurredAt,
+        }],
+        eventsTruncated: false,
+        workflow: {
+            stage: "판매자 직접취소 완료",
+            nextWork: purchased ? "소싱 구매가 있었다면 환불 후속조치를 확인" : "완료 목록에서 이력을 확인",
+            risk: null,
+            pickup: null,
+            replacementShipment: null,
+        },
+    };
+}
+
+export const DEMO_SELLER_CANCEL_CLAIMS: DemoClaimDetail[] = [
+    createDemoSellerCancelClaim({
+        id: "ORD-DEMO-SELLER-CANCEL-01",
+        marketOrderId: "NAVER-20260820-9101",
+        marketType: "naver",
+        storeName: "리빙온마켓",
+        orderDate: "2026-08-20 09:20",
+        status: "CANCELED",
+        buyerName: "한지민",
+        buyerPhone: "010-0000-0000",
+        recipient: { name: "한지민", phone: "010-0000-0000", address: "서울특별시" },
+        product: {
+            id: "PROD-DEMO-SELLER-CANCEL-01",
+            productOrderId: "NAVER-PROD-SELLER-CANCEL-01",
+            name: "원목 접이식 사이드 테이블",
+            thumbnail: "/images/product-placeholder.svg",
+            optionName: "내추럴",
+            quantity: 1,
+            unitPrice: 38900,
+        },
+        paymentPrice: 38900,
+        platformFee: 1400,
+        expectedSettlement: 37500,
+        sourcingLifeSyncStatus: "NOT_LINKED",
+        sellerCancelReason: "상품 품절",
+        sellerCanceledAt: "2026-08-20T09:45:00+09:00",
+        dataSource: "demo",
+    }, "2026-08-20T09:45:00+09:00", "상품 품절"),
 ];

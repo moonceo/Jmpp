@@ -1,171 +1,503 @@
 "use client";
 
-import { useState } from "react";
-import { FileSpreadsheet, Filter } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+    Download,
+    PencilLine,
+    Search,
+    Settings,
+} from "lucide-react";
 import { toast } from "sonner";
+import { ManualLedgerEntryDialog } from "@/components/ledger/manual-ledger-entry-dialog";
+import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
+import { Card } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MARKET_LABELS } from "@/lib/constants/orders";
+import {
+    filterLedgerOrders,
+    formatLedgerDate,
+    getMonthLedgerRange,
+    getRecentLedgerRange,
+    LEDGER_HEADERS,
+    ledgerRowToValues,
+    summarizeLedger,
+    type LedgerFilter,
+    type LedgerMarket,
+} from "@/lib/ledger";
+import { createMockOrders } from "@/lib/mock-data/orders";
+import {
+    useLedgerManualEntryHydration,
+    useLedgerManualEntryStore,
+} from "@/lib/stores/ledger-manual-entry-store";
+import { cn } from "@/lib/utils";
+import type { MarketType, Order } from "@/types/order";
+
+type SearchMode = "monthly" | "range";
+
+const marketOptions = Object.entries(MARKET_LABELS) as Array<[MarketType, string]>;
+
+function rangeFromDays(referenceDate: Date, days: number): Pick<LedgerFilter, "startDate" | "endDate"> {
+    const end = new Date(referenceDate);
+    const start = new Date(referenceDate);
+    start.setDate(start.getDate() - (days - 1));
+    return { startDate: formatLedgerDate(start), endDate: formatLedgerDate(end) };
+}
+
+function formatCurrency(value: number): string {
+    return `${value.toLocaleString("ko-KR")}원`;
+}
+
+type LedgerHeader = (typeof LEDGER_HEADERS)[number];
+
+const NUMBER_HEADERS = new Set<LedgerHeader>([
+    "수량",
+    "상품결제금액",
+    "결제배송비",
+    "정산예정금액",
+    "결제금액",
+    "구매금액(원화)",
+    "국제배송비",
+    "화물택배비",
+    "관부가세",
+    "수익금",
+    "수익률",
+]);
+
+function formatLedgerCell(header: LedgerHeader, value: string | number | Date | null): string {
+    if (value === null || value === "") return "-";
+    if (value instanceof Date) return formatLedgerDate(value);
+    if (header === "수익률" && typeof value === "number") return `${(value * 100).toFixed(1)}%`;
+    if (typeof value === "number" && header !== "수량") return value.toLocaleString("ko-KR");
+    return String(value);
+}
+
+function ledgerHeaderGroupClass(index: number): string {
+    if (index <= 18 || index === 37) return "bg-amber-50 text-amber-950";
+    if (index <= 26) return "bg-yellow-100 text-yellow-950";
+    if (index <= 34) return "bg-slate-100 text-slate-950";
+    return "bg-rose-50 text-rose-950";
+}
+
+function ledgerColumnClass(header: LedgerHeader): string {
+    if (["상품명", "주소", "배송메세지", "비고"].includes(header)) return "min-w-64 whitespace-normal";
+    if (["상품URL", "소싱URL"].includes(header)) return "min-w-72 whitespace-normal break-all";
+    if (["주문번호", "상품번호", "해외주문번호", "해외송장번호", "국내운송장번호", "화물운송장번호"].includes(header)) {
+        return "min-w-44 font-mono";
+    }
+    return "min-w-28 whitespace-nowrap";
+}
 
 export default function LedgerPage() {
-    const [year, setYear] = useState("2026");
-    const [month, setMonth] = useState("6");
-    const [onlyConfirmed, setOnlyConfirmed] = useState(true);
-    const [excludeCancel, setExcludeCancel] = useState(true);
+    useLedgerManualEntryHydration();
+    const manualEntries = useLedgerManualEntryStore((state) => state.entries);
+    const [orders] = useState(() => createMockOrders(new Date()));
+    const [referenceDate] = useState(() => new Date());
+    const initialRange = useMemo(() => getRecentLedgerRange(referenceDate), [referenceDate]);
+    const [mode, setMode] = useState<SearchMode>("range");
+    const [appliedMode, setAppliedMode] = useState<SearchMode>("range");
+    const [year, setYear] = useState(String(referenceDate.getFullYear()));
+    const [month, setMonth] = useState(String(referenceDate.getMonth() + 1));
+    const [draftFilter, setDraftFilter] = useState<LedgerFilter>({
+        ...initialRange,
+        market: "all",
+        onlyConfirmed: true,
+        excludeCanceledReturns: true,
+        includeManualEntries: true,
+    });
+    const [appliedFilter, setAppliedFilter] = useState<LedgerFilter>(draftFilter);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const [manualEntryOrder, setManualEntryOrder] = useState<Order | null>(null);
 
-    const summary = {
-        totalOrders: 154,
-        totalSales: 4820000,
-        totalMargin: 1250000,
-        marginRate: 25.9,
+    const rows = useMemo(
+        () => filterLedgerOrders(orders, appliedFilter, manualEntries),
+        [appliedFilter, manualEntries, orders],
+    );
+    const summary = useMemo(() => summarizeLedger(rows), [rows]);
+
+    const updateDates = (range: Pick<LedgerFilter, "startDate" | "endDate">) => {
+        setDraftFilter((current) => ({ ...current, ...range }));
     };
 
-    const handleDownload = () => {
+    const selectMode = (nextMode: SearchMode) => {
+        setMode(nextMode);
+        if (nextMode === "monthly") {
+            updateDates(getMonthLedgerRange(Number(year), Number(month)));
+        }
+    };
+
+    const updateMonth = (nextYear: string, nextMonth: string) => {
+        setYear(nextYear);
+        setMonth(nextMonth);
+        updateDates(getMonthLedgerRange(Number(nextYear), Number(nextMonth)));
+    };
+
+    const handleSearch = () => {
+        if (draftFilter.startDate > draftFilter.endDate) {
+            toast.error("조회 시작일은 종료일보다 늦을 수 없습니다.");
+            return;
+        }
+
+        setIsRefreshing(true);
+        setAppliedFilter(draftFilter);
+        setAppliedMode(mode);
+        window.setTimeout(() => setIsRefreshing(false), 350);
+    };
+
+    const handleDownload = async () => {
         setIsGenerating(true);
-        setTimeout(() => {
+        try {
+            const response = await fetch("/api/ledger/download", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ...appliedFilter, monthly: appliedMode === "monthly", manualEntries }),
+            });
+
+            if (!response.ok) {
+                const error = await response.json().catch(() => null) as { message?: string } | null;
+                throw new Error(error?.message ?? "장부 파일을 생성하지 못했습니다.");
+            }
+
+            const disposition = response.headers.get("Content-Disposition") ?? "";
+            const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? "commerce-life_ledger.xlsx";
+            const blob = await response.blob();
+            const downloadUrl = URL.createObjectURL(blob);
+            const anchor = document.createElement("a");
+            anchor.href = downloadUrl;
+            anchor.download = filename;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            URL.revokeObjectURL(downloadUrl);
+            toast.success(`장부 다운로드 완료: ${filename}`);
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "장부 파일을 생성하지 못했습니다.");
+        } finally {
             setIsGenerating(false);
-            toast.success(`장부 다운로드 완료: jumunpangpang_ledger_${year}${month.padStart(2, "0")}.xlsx`);
-        }, 1200);
+        }
+    };
+
+    const marketCount = new Set(orders.map((order) => order.marketType)).size;
+    const updateDraft = <Key extends keyof LedgerFilter>(key: Key, value: LedgerFilter[Key]) => {
+        setDraftFilter((current) => ({ ...current, [key]: value }));
     };
 
     return (
-        <div className="mx-auto w-full max-w-7xl space-y-8 p-6 lg:p-10">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight">장부다운로드</h1>
-                <p className="mt-2 text-muted-foreground">
-                    주문, 정산, 마진 데이터를 기간별로 추출합니다.
-                </p>
-            </div>
+        <div className="min-h-full space-y-6 p-4 sm:p-6 lg:p-8">
+            <PageHeader
+                eyebrow="COMMERCE LIFE · LEDGER EXPORT"
+                title="장부 다운로드"
+                description="주문을 조회하고 엑셀 장부로 저장합니다."
+            />
 
-            <div className="flex flex-col gap-6 md:flex-row">
-                <Card className="h-fit md:w-[350px]">
-                    <CardContent className="space-y-6 p-6">
-                        <div className="space-y-4">
-                            <h3 className="flex items-center gap-2 font-semibold">
-                                <Filter className="h-4 w-4" />
-                                데이터 기간 및 필터
-                            </h3>
+            <Card className="rounded-xl p-4 shadow-sm">
+                <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:gap-2">
+                    <div className="shrink-0">
+                        <div className="flex h-10 rounded-md bg-muted p-1">
+                            <button
+                                type="button"
+                                onClick={() => selectMode("range")}
+                                className={cn(
+                                    "rounded px-2.5 text-sm font-bold transition-colors",
+                                    mode === "range" ? "bg-background shadow-sm" : "text-muted-foreground",
+                                )}
+                            >
+                                기간
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => selectMode("monthly")}
+                                className={cn(
+                                    "rounded px-2.5 text-sm font-bold transition-colors",
+                                    mode === "monthly" ? "bg-background shadow-sm" : "text-muted-foreground",
+                                )}
+                            >
+                                월별
+                            </button>
+                        </div>
+                    </div>
 
-                            <div className="grid grid-cols-2 gap-2">
-                                <Select value={year} onValueChange={setYear}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="연도" />
-                                    </SelectTrigger>
+                    <div className="shrink-0">
+                        {mode === "monthly" ? (
+                            <div className="flex gap-2">
+                                <Select value={year} onValueChange={(value) => updateMonth(value, month)}>
+                                    <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="2026">2026년</SelectItem>
-                                        <SelectItem value="2025">2025년</SelectItem>
-                                        <SelectItem value="2024">2024년</SelectItem>
+                                        {Array.from({ length: 3 }, (_, index) => referenceDate.getFullYear() - index).map((value) => (
+                                            <SelectItem key={value} value={String(value)}>{value}년</SelectItem>
+                                        ))}
                                     </SelectContent>
                                 </Select>
-                                <Select value={month} onValueChange={setMonth}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="월" />
-                                    </SelectTrigger>
+                                <Select value={month} onValueChange={(value) => updateMonth(year, value)}>
+                                    <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
                                     <SelectContent>
-                                        {Array.from({ length: 12 }, (_, index) => index + 1).map((monthValue) => (
-                                            <SelectItem key={monthValue} value={monthValue.toString()}>
-                                                {monthValue}월
-                                            </SelectItem>
+                                        {Array.from({ length: 12 }, (_, index) => index + 1).map((value) => (
+                                            <SelectItem key={value} value={String(value)}>{value}월</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
                             </div>
-
-                            <div className="space-y-4 pt-2">
-                                <div className="flex items-center justify-between gap-4">
-                                    <Label htmlFor="margin-filter" className="cursor-pointer">
-                                        마진 확정 주문만
-                                    </Label>
-                                    <Switch id="margin-filter" checked={onlyConfirmed} onCheckedChange={setOnlyConfirmed} />
-                                </div>
-                                <div className="flex items-center justify-between gap-4">
-                                    <Label htmlFor="cancel-filter" className="cursor-pointer">
-                                        취소/반품 제외
-                                    </Label>
-                                    <Switch id="cancel-filter" checked={excludeCancel} onCheckedChange={setExcludeCancel} />
-                                </div>
+                        ) : (
+                            <div className="flex items-center gap-1.5">
+                                <label>
+                                    <span className="sr-only">조회 시작일</span>
+                                    <input
+                                        type="date"
+                                        value={draftFilter.startDate}
+                                        onChange={(event) => updateDraft("startDate", event.target.value)}
+                                        className="h-10 w-32 rounded-md border bg-background px-2 font-mono text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    />
+                                </label>
+                                <span className="text-muted-foreground">—</span>
+                                <label>
+                                    <span className="sr-only">조회 종료일</span>
+                                    <input
+                                        type="date"
+                                        value={draftFilter.endDate}
+                                        onChange={(event) => updateDraft("endDate", event.target.value)}
+                                        className="h-10 w-32 rounded-md border bg-background px-2 font-mono text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    />
+                                </label>
                             </div>
-                        </div>
-
-                        <Button className="h-12 w-full text-lg" onClick={handleDownload} disabled={isGenerating}>
-                            {isGenerating ? (
-                                "데이터 추출 중"
-                            ) : (
-                                "엑셀 다운로드"
-                            )}
-                        </Button>
-                        <p className="text-center text-xs text-muted-foreground">
-                            최근 연동된 주문과 소싱라이프 정산 데이터를 기준으로 생성됩니다.
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <div className="flex-1 space-y-6">
-                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                        <div className="rounded-lg border bg-white p-4 text-center shadow-sm dark:bg-zinc-900">
-                            <div className="mb-1 text-xs text-muted-foreground">총 주문</div>
-                            <div className="text-lg font-bold">{summary.totalOrders}건</div>
-                        </div>
-                        <div className="rounded-lg border bg-white p-4 text-center shadow-sm dark:bg-zinc-900">
-                            <div className="mb-1 text-xs text-muted-foreground">총 매출</div>
-                            <div className="text-lg font-bold">{summary.totalSales.toLocaleString()}원</div>
-                        </div>
-                        <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-center shadow-sm dark:border-blue-900 dark:bg-blue-900/20">
-                            <div className="mb-1 text-xs text-blue-600 dark:text-blue-400">예상 마진</div>
-                            <div className="text-lg font-bold text-blue-700 dark:text-blue-300">{summary.totalMargin.toLocaleString()}원</div>
-                        </div>
-                        <div className="rounded-lg border bg-white p-4 text-center shadow-sm dark:bg-zinc-900">
-                            <div className="mb-1 text-xs text-muted-foreground">마진율</div>
-                            <div className="text-lg font-bold">{summary.marginRate}%</div>
-                        </div>
+                        )}
                     </div>
 
-                    <div className="overflow-hidden rounded-lg border bg-white dark:bg-zinc-900">
-                        <div className="flex items-center gap-2 border-b bg-slate-50 p-4 dark:bg-slate-900/50">
-                            <FileSpreadsheet className="h-4 w-4 text-green-600" />
-                            <span className="text-sm font-medium">추출 데이터 미리보기</span>
+                    {mode === "range" && (
+                        <div className="shrink-0">
+                            <Select value="" onValueChange={(value) => {
+                                if (value === "today") updateDates(rangeFromDays(referenceDate, 1));
+                                if (value === "week") updateDates(rangeFromDays(referenceDate, 7));
+                                if (value === "month") updateDates(getMonthLedgerRange(referenceDate.getFullYear(), referenceDate.getMonth() + 1));
+                                if (value === "quarter") {
+                                    const start = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - 2, 1);
+                                    updateDates({ startDate: formatLedgerDate(start), endDate: formatLedgerDate(referenceDate) });
+                                }
+                            }}>
+                                <SelectTrigger className="w-24" aria-label="빠른 기간 선택">
+                                    <SelectValue placeholder="빠른 기간" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="today">오늘</SelectItem>
+                                    <SelectItem value="week">최근 7일</SelectItem>
+                                    <SelectItem value="month">이번 달</SelectItem>
+                                    <SelectItem value="quarter">최근 3개월</SelectItem>
+                                </SelectContent>
+                            </Select>
                         </div>
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead className="w-[110px]">주문일</TableHead>
-                                    <TableHead>주문번호</TableHead>
-                                    <TableHead>상품명</TableHead>
-                                    <TableHead className="text-right">결제금액</TableHead>
-                                    <TableHead className="text-right text-blue-600">예상마진</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                <TableRow>
-                                    <TableCell>2026-06-10</TableCell>
-                                    <TableCell className="font-mono text-xs">NAVER-20260610-1001</TableCell>
-                                    <TableCell className="max-w-[180px] truncate">북유럽 인테리어 TV 거실장 2000</TableCell>
-                                    <TableCell className="text-right">159,000원</TableCell>
-                                    <TableCell className="text-right font-medium text-blue-600">+42,000원</TableCell>
-                                </TableRow>
-                                <TableRow>
-                                    <TableCell>2026-06-09</TableCell>
-                                    <TableCell className="font-mono text-xs">11ST-555555</TableCell>
-                                    <TableCell className="max-w-[180px] truncate">캠핑 접이식 경량 체어 1+1</TableCell>
-                                    <TableCell className="text-right">90,000원</TableCell>
-                                    <TableCell className="text-right font-medium text-blue-600">+18,400원</TableCell>
-                                </TableRow>
-                                <TableRow>
-                                    <TableCell>2026-06-08</TableCell>
-                                    <TableCell className="font-mono text-xs">NAVER-PAY-0004</TableCell>
-                                    <TableCell className="max-w-[180px] truncate">빈티지 글라스 무드 조명</TableCell>
-                                    <TableCell className="text-right">38,000원</TableCell>
-                                    <TableCell className="text-right font-medium text-blue-600">+18,600원</TableCell>
-                                </TableRow>
-                            </TableBody>
-                        </Table>
+                    )}
+
+                    <div className="shrink-0">
+                        <Select value={draftFilter.market} onValueChange={(value) => updateDraft("market", value as LedgerMarket)}>
+                            <SelectTrigger className="w-32" aria-label="마켓">
+                                <SelectValue>
+                                    {draftFilter.market === "all" ? `전체 (${marketCount})` : MARKET_LABELS[draftFilter.market]}
+                                </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">전체 ({marketCount})</SelectItem>
+                                {marketOptions.map(([value, label]) => (
+                                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="min-w-40 shrink-0 xl:ml-auto">
+                        <p className="flex h-10 items-center whitespace-nowrap rounded-md bg-muted/60 px-3 font-mono text-[11px] font-bold">
+                            {appliedFilter.startDate} — {appliedFilter.endDate}
+                        </p>
+                    </div>
+
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="shrink-0"
+                        aria-label="조회 설정"
+                        title="조회 설정"
+                        onClick={() => setSettingsOpen(true)}
+                    >
+                        <Settings className="size-4" />
+                    </Button>
+                    <Button className="shrink-0 px-3" onClick={handleSearch} disabled={isRefreshing}>
+                        <Search className="size-4" />
+                        {isRefreshing ? "조회 중" : "조회"}
+                    </Button>
+                </div>
+            </Card>
+
+            <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>조회 설정</DialogTitle>
+                        <DialogDescription>장부에 포함할 주문 조건을 선택합니다.</DialogDescription>
+                    </DialogHeader>
+                    <div className="divide-y rounded-md border">
+                        <SettingSwitch
+                            label="마진 확정 주문만"
+                            description="실제 또는 직접 입력 구매금액이 있는 주문만 표시"
+                            checked={draftFilter.onlyConfirmed}
+                            onCheckedChange={(checked) => updateDraft("onlyConfirmed", checked)}
+                        />
+                        <SettingSwitch
+                            label="취소·반품 제외"
+                            description="취소되거나 반품된 주문은 장부에서 제외"
+                            checked={draftFilter.excludeCanceledReturns}
+                            onCheckedChange={(checked) => updateDraft("excludeCanceledReturns", checked)}
+                        />
+                        <SettingSwitch
+                            label="직접 입력 반영"
+                            description="직접 입력값을 장부 데이터, 마진과 엑셀에 반영"
+                            checked={draftFilter.includeManualEntries}
+                            onCheckedChange={(checked) => updateDraft("includeManualEntries", checked)}
+                        />
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            <Card className="overflow-hidden rounded-xl border-foreground bg-foreground text-background shadow-sm">
+                <div className="grid sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_190px]">
+                    <SummaryItem label="주문" value={`${summary.totalOrders}건`} />
+                    <SummaryItem label="매출" value={formatCurrency(summary.totalSales)} />
+                    <SummaryItem label="마진" value={formatCurrency(summary.totalProfit)} />
+                    <SummaryItem label="마진율" value={`${summary.marginRate.toFixed(1)}%`} />
+                    <div className="flex items-center border-t border-background/15 p-3 xl:border-l xl:border-t-0">
+                        <Button
+                            variant="secondary"
+                            className="w-full bg-background text-foreground hover:bg-background/90"
+                            onClick={handleDownload}
+                            disabled={isGenerating || rows.length === 0}
+                        >
+                            <Download className="size-4" />
+                            {isGenerating ? "생성 중" : "엑셀 다운로드"}
+                        </Button>
                     </div>
                 </div>
-            </div>
+            </Card>
+
+            <Card className="overflow-hidden rounded-xl shadow-sm">
+                <div className="max-h-[68vh] overflow-auto">
+                    <Table className="min-w-max border-separate border-spacing-0">
+                        <TableHeader className="sticky top-0 z-20 shadow-[0_1px_0_0_var(--border)]">
+                            <TableRow>
+                                {LEDGER_HEADERS.map((header, index) => (
+                                    <TableHead
+                                        key={header}
+                                        className={cn(
+                                            "h-12 border-r border-b px-3 text-xs font-black whitespace-nowrap",
+                                            ledgerHeaderGroupClass(index),
+                                            index === 0 && "sticky left-0 z-30 w-28 min-w-28",
+                                            NUMBER_HEADERS.has(header) && "text-right",
+                                        )}
+                                    >
+                                        <span className="mr-1.5 font-mono text-[10px] opacity-45">{String(index + 1).padStart(2, "0")}</span>
+                                        {header}
+                                    </TableHead>
+                                ))}
+                                <TableHead className="h-12 w-12 min-w-12 border-b border-l bg-foreground p-0 text-center text-background">
+                                    <PencilLine className="mx-auto size-3.5" aria-hidden="true" />
+                                    <span className="sr-only">직접 입력</span>
+                                </TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {rows.length === 0 ? (
+                                <TableRow>
+                                    <TableCell colSpan={LEDGER_HEADERS.length + 1} className="h-28 text-center text-muted-foreground">
+                                        조회 조건에 맞는 장부 데이터가 없습니다.
+                                    </TableCell>
+                                </TableRow>
+                            ) : rows.map((row) => {
+                                const values = ledgerRowToValues(row);
+
+                                return (
+                                    <TableRow key={row.order.id}>
+                                        {LEDGER_HEADERS.map((header, index) => (
+                                            <TableCell
+                                                key={header}
+                                                className={cn(
+                                                    "border-r border-b px-3 py-2.5 text-xs align-top",
+                                                    ledgerColumnClass(header),
+                                                    index === 0 && "sticky left-0 z-10 w-28 min-w-28 bg-background font-mono",
+                                                    NUMBER_HEADERS.has(header) && "text-right tabular-nums",
+                                                    (header === "수익금" || header === "수익률") && "font-bold",
+                                                )}
+                                            >
+                                                {formatLedgerCell(header, values[index] ?? null)}
+                                            </TableCell>
+                                        ))}
+                                        <TableCell className="w-12 min-w-12 border-b border-l bg-background p-0 text-center">
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon-xs"
+                                                aria-label={`${row.order.product.name} 직접 입력`}
+                                                title="직접 입력"
+                                                onClick={() => setManualEntryOrder(row.order)}
+                                            >
+                                                <PencilLine aria-hidden="true" />
+                                            </Button>
+                                        </TableCell>
+                                    </TableRow>
+                                );
+                            })}
+                        </TableBody>
+                    </Table>
+                </div>
+            </Card>
+
+            {manualEntryOrder && (
+                <ManualLedgerEntryDialog
+                    key={manualEntryOrder.id}
+                    orders={[manualEntryOrder]}
+                    initialOrderId={manualEntryOrder.id}
+                    open
+                    hideTrigger
+                    onOpenChange={(open) => {
+                        if (!open) setManualEntryOrder(null);
+                    }}
+                />
+            )}
         </div>
+    );
+}
+
+function SummaryItem({ label, value }: { label: string; value: string }) {
+    return (
+        <div className="border-t border-background/15 px-5 py-4 xl:border-l xl:border-t-0">
+            <p className="text-[11px] font-semibold text-background/55">{label}</p>
+            <p className="mt-1 whitespace-nowrap text-lg font-black tracking-tight">{value}</p>
+        </div>
+    );
+}
+
+function SettingSwitch({
+    label,
+    description,
+    checked,
+    onCheckedChange,
+}: {
+    label: string;
+    description: string;
+    checked: boolean;
+    onCheckedChange: (checked: boolean) => void;
+}) {
+    return (
+        <label className="flex cursor-pointer items-center gap-4 px-4 py-3.5">
+            <span className="min-w-0 flex-1">
+                <span className="block text-sm font-bold">{label}</span>
+                <span className="mt-1 block text-xs leading-5 text-muted-foreground">{description}</span>
+            </span>
+            <Switch
+                checked={checked}
+                onCheckedChange={onCheckedChange}
+                aria-label={label}
+            />
+        </label>
     );
 }

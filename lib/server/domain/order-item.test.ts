@@ -105,7 +105,7 @@ describe("order item state invariants", () => {
     );
   });
 
-  it("allows READY_TO_SHIP only with purchase and a valid invoice", () => {
+  it("allows READY_TO_SHIP with purchase and a valid invoice", () => {
     const state: OrderItemState = {
       ...withCompletedPurchaseAndInvoice(createBaseState()),
       internalWorkStatus: "READY_TO_SHIP",
@@ -114,7 +114,26 @@ describe("order item state invariants", () => {
     expect(validateOrderItemState(state)).toEqual([]);
   });
 
-  it("requires successful market submission for parcel SHIPPING", () => {
+  it("keeps a paid direct-delivery order in READY_TO_SHIP until internal shipping is completed", () => {
+    const state: OrderItemState = {
+      ...withCompletedPurchaseAndInvoice(createBaseState()),
+      internalWorkStatus: "READY_TO_SHIP",
+      market: {
+        rawStatus: "DELIVERING",
+        fulfillmentStatus: "SHIPPING",
+        deliveryMethod: "DIRECT_DELIVERY",
+        submission: {
+          status: "SUBMITTED",
+          succeededCommandId: "command-direct",
+          submittedAt: timestamp,
+        },
+      },
+    };
+
+    expect(validateOrderItemState(state)).toEqual([]);
+  });
+
+  it("rejects internal SHIPPING before marketplace dispatch", () => {
     const state: OrderItemState = {
       ...withCompletedPurchaseAndInvoice(createBaseState()),
       internalWorkStatus: "SHIPPING",
@@ -126,9 +145,25 @@ describe("order item state invariants", () => {
       },
     };
 
-    expect(validateOrderItemState(state).map(({ code }) => code)).toContain(
+    expect(validateOrderItemState(state).map(({ code }) => code)).toContain("SHIPPING_REQUIRES_MARKET_SUBMISSION");
+  });
+
+  it("rejects internal SHIPPING when the marketplace method is not recorded", () => {
+    const state: OrderItemState = {
+      ...createBaseState(),
+      internalWorkStatus: "SHIPPING",
+      purchase: {
+        method: "SOURCING_LIFE",
+        status: "PURCHASED",
+        paidAt: timestamp,
+        purchasedAt: timestamp,
+      },
+    };
+
+    expect(validateOrderItemState(state).map(({ code }) => code)).toEqual(expect.arrayContaining([
       "SHIPPING_REQUIRES_MARKET_SUBMISSION",
-    );
+      "SHIPPING_REQUIRES_DELIVERY_METHOD",
+    ]));
   });
 
   it("allows parcel SHIPPING after a successful invoice command", () => {
@@ -150,50 +185,29 @@ describe("order item state invariants", () => {
     expect(validateOrderItemState(state)).toEqual([]);
   });
 
-  it("keeps a direct-delivery-only item in PREPARING", () => {
-    const state: OrderItemState = {
-      ...createBaseState(),
-      internalWorkStatus: "PREPARING",
-      market: {
-        rawStatus: "DELIVERING",
-        fulfillmentStatus: "SHIPPING",
-        deliveryMethod: "DIRECT_DELIVERY",
-        submission: {
-          status: "SUBMITTED",
-          succeededCommandId: "command-direct",
-          submittedAt: timestamp,
+  it.each(["DELIVERY", "DIRECT_DELIVERY", "OVERSEAS_OTHER_DELIVERY"] as const)(
+    "rejects pre-purchase %s marketplace submission",
+    (deliveryMethod) => {
+      const state: OrderItemState = {
+        ...createBaseState(),
+        internalWorkStatus: "PREPARING",
+        market: {
+          rawStatus: "DELIVERING",
+          fulfillmentStatus: "SHIPPING",
+          deliveryMethod,
+          submission: {
+            status: "SUBMITTED",
+            succeededCommandId: `command-${deliveryMethod}`,
+            submittedAt: timestamp,
+          },
         },
-      },
-    };
+      };
 
-    expect(validateOrderItemState(state)).toEqual([]);
-  });
-
-  it("rejects an invoice on an unpurchased direct-delivery item", () => {
-    const state: OrderItemState = {
-      ...createBaseState(),
-      internalWorkStatus: "PREPARING",
-      market: {
-        rawStatus: "DELIVERING",
-        fulfillmentStatus: "SHIPPING",
-        deliveryMethod: "DIRECT_DELIVERY",
-        submission: {
-          status: "SUBMITTED",
-          succeededCommandId: "command-direct",
-          submittedAt: timestamp,
-        },
-      },
-      shipment: {
-        invoiceStatus: "INVOICE_RECEIVED",
-        domesticStatus: "PREPARING",
-        invoice: validInvoice,
-      },
-    };
-
-    expect(validateOrderItemState(state).map(({ code }) => code)).toContain(
-      "DIRECT_DELIVERY_PENDING_PURCHASE_CANNOT_HAVE_INVOICE",
-    );
-  });
+      expect(validateOrderItemState(state)).toContainEqual(expect.objectContaining({
+        code: "MARKET_SUBMISSION_REQUIRES_PURCHASE",
+      }));
+    },
+  );
 
   it("allows direct-delivery SHIPPING after purchase and invoice arrive", () => {
     const state: OrderItemState = {

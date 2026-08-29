@@ -1,4 +1,7 @@
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
+import { Item, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import {
     Dialog,
     DialogContent,
@@ -9,10 +12,11 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Sparkles } from "lucide-react";
 import { Inquiry } from "@/types/inquiry";
 import { useState } from "react";
 import { toast } from "sonner";
+import { createInquiryReplyDraft } from "@/lib/inquiry-ai-draft";
 
 interface ReplyModalProps {
     isOpen: boolean;
@@ -24,8 +28,16 @@ interface ReplyModalProps {
 export function ReplyModal({ isOpen, onClose, inquiry, onConfirmReply }: ReplyModalProps) {
     const [replyContent, setReplyContent] = useState("");
     const [isConfirming, setIsConfirming] = useState(false);
+    const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
 
     if (!inquiry) return null;
+
+    const closeDialog = () => {
+        setReplyContent("");
+        setIsConfirming(false);
+        setIsGeneratingDraft(false);
+        onClose();
+    };
 
     const handleSendClick = () => {
         if (!replyContent.trim()) {
@@ -37,17 +49,21 @@ export function ReplyModal({ isOpen, onClose, inquiry, onConfirmReply }: ReplyMo
 
     const handleFinalConfirm = () => {
         onConfirmReply(inquiry.id, replyContent);
-        setReplyContent("");
-        setIsConfirming(false);
-        onClose();
+        closeDialog();
+    };
+
+    const generateDraft = () => {
+        setIsGeneratingDraft(true);
+        window.setTimeout(() => {
+            setReplyContent(createInquiryReplyDraft(inquiry));
+            setIsGeneratingDraft(false);
+            toast.success("문의와 상품 정보를 바탕으로 답변 초안을 만들었습니다.");
+        }, 500);
     };
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => {
-            if (!open) {
-                setIsConfirming(false);
-                onClose();
-            }
+            if (!open) closeDialog();
         }}>
             <DialogContent className="sm:max-w-[600px]">
                 {!isConfirming ? (
@@ -60,17 +76,31 @@ export function ReplyModal({ isOpen, onClose, inquiry, onConfirmReply }: ReplyMo
                         </DialogHeader>
 
                         {/* Inquiry Context */}
-                        <div className="bg-muted p-4 rounded-lg space-y-2 text-sm">
-                            <div className="font-semibold text-foreground flex items-center justify-between">
+                        <Item variant="muted">
+                            <ItemContent>
+                            <ItemTitle className="w-full justify-between">
                                 <span>Q. {inquiry.content}</span>
                                 <span className="text-xs font-normal text-muted-foreground">
                                     {inquiry.writerId}
                                 </span>
-                            </div>
-                            <div className="text-xs text-muted-foreground/80">
+                            </ItemTitle>
+                            <ItemDescription>
                                 {inquiry.product?.name} ({inquiry.product?.optionName})
-                            </div>
-                        </div>
+                            </ItemDescription>
+                            </ItemContent>
+                        </Item>
+
+                        <Alert>
+                            <Sparkles />
+                            <AlertTitle>AI 답변작성 도우미</AlertTitle>
+                            <AlertDescription className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <span>문의·상품 정보를 사용해 과도한 약속이 없는 검토용 초안을 만듭니다. 전송 전 사실관계를 확인하세요.</span>
+                                <Button type="button" variant="outline" size="sm" onClick={generateDraft} disabled={isGeneratingDraft}>
+                                    <Sparkles />
+                                    {isGeneratingDraft ? "초안 생성 중" : "AI 초안 만들기"}
+                                </Button>
+                            </AlertDescription>
+                        </Alert>
 
                         {/* Templates (Mock) */}
                         <Tabs defaultValue="direct" className="w-full">
@@ -87,15 +117,19 @@ export function ReplyModal({ isOpen, onClose, inquiry, onConfirmReply }: ReplyMo
                                 />
                             </TabsContent>
                             <TabsContent value="template" className="mt-4">
-                                <div className="min-h-[200px] border rounded-md p-4 flex flex-col items-center justify-center text-muted-foreground text-sm">
-                                    <p>등록된 상용구가 없습니다.</p>
-                                    <Button variant="link" className="text-blue-600">상용구 관리 바로가기</Button>
-                                </div>
+                                <Empty className="min-h-[200px] border">
+                                    <EmptyHeader>
+                                        <EmptyDescription>등록된 상용구가 없습니다.</EmptyDescription>
+                                    </EmptyHeader>
+                                    <EmptyContent>
+                                        <Button variant="outline">상용구 관리 바로가기</Button>
+                                    </EmptyContent>
+                                </Empty>
                             </TabsContent>
                         </Tabs>
 
                         <DialogFooter>
-                            <Button variant="outline" onClick={onClose}>취소</Button>
+                            <Button variant="outline" onClick={closeDialog}>취소</Button>
                             <Button onClick={handleSendClick}>
                                 답변 전송
                             </Button>
@@ -104,7 +138,7 @@ export function ReplyModal({ isOpen, onClose, inquiry, onConfirmReply }: ReplyMo
                 ) : (
                     <>
                         <DialogHeader>
-                            <DialogTitle className="text-red-600 flex items-center gap-2">
+                            <DialogTitle className="text-foreground flex items-center gap-2">
                                 <AlertTriangle className="h-6 w-6" />
                                 답변 전송 확인
                             </DialogTitle>
@@ -114,12 +148,16 @@ export function ReplyModal({ isOpen, onClose, inquiry, onConfirmReply }: ReplyMo
                             <p className="font-medium text-center text-lg">
                                 정말로 전송하시겠습니까?
                             </p>
-                            <div className="bg-red-50 text-red-800 p-4 rounded border border-red-200 text-sm">
-                                ⚠️ <strong>주의:</strong> 마켓 정책상 한 번 전송된 답변은 <strong>수정하거나 삭제할 수 없습니다.</strong> 오타나 잘못된 내용이 없는지 다시 한 번 확인해주세요.
-                            </div>
-                            <div className="bg-muted p-4 rounded text-sm text-foreground/80 italic border-l-4 border-gray-400">
-                                &ldquo;{replyContent}&rdquo;
-                            </div>
+                            <Alert>
+                                <AlertTriangle />
+                                <AlertTitle>주의</AlertTitle>
+                                <AlertDescription>마켓 정책상 한 번 전송된 답변은 수정하거나 삭제할 수 없습니다. 오타나 잘못된 내용이 없는지 다시 확인해주세요.</AlertDescription>
+                            </Alert>
+                            <Item variant="outline">
+                                <ItemContent>
+                                    <ItemDescription className="italic text-foreground/80">&ldquo;{replyContent}&rdquo;</ItemDescription>
+                                </ItemContent>
+                            </Item>
                         </div>
 
                         <DialogFooter className="gap-2 sm:justify-center">

@@ -2,10 +2,12 @@
 
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { RefreshCw, Settings, Trash2 } from "lucide-react";
+import { LockKeyhole, RefreshCw, Settings, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/shared/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +19,7 @@ import { MARKET_LABELS } from "@/lib/constants/orders";
 import { withBrowserSecurity } from "@/lib/client/http";
 
 type MarketKey = "naver" | "coupang" | "11st" | "gmarket" | "auction";
+type ShippingProcessPreference = "DELIVERY" | "DIRECT_DELIVERY" | "OVERSEAS_OTHER_DELIVERY";
 
 type MarketAccount = {
     id: string;
@@ -31,11 +34,13 @@ type MarketAccount = {
     version?: string;
     businessNumber?: string;
     source?: "api" | "demo";
+    shippingProcessPreference: ShippingProcessPreference;
 };
 
 type AddForm = {
     storeName: string;
     businessNumber: string;
+    shippingProcessPreference: ShippingProcessPreference;
     naverSellerId: string;
     naverClientId: string;
     naverClientSecret: string;
@@ -70,21 +75,22 @@ type ApiMarketAccount = {
 type ApiEnvelope<T> = { data: T };
 
 const initialAccounts: MarketAccount[] = [
-    { id: "acct-01", market: "naver", storeName: "리빙온마켓", sellerAccount: "naver_living_01", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:42", lastResult: "success", feeRate: 3.6 },
-    { id: "acct-02", market: "naver", storeName: "홈데코랩", sellerAccount: "naver_home_02", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:39", lastResult: "success", feeRate: 3.8 },
-    { id: "acct-03", market: "coupang", storeName: "쿠팡라이프샵", sellerAccount: "coupang_wing_01", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:36", lastResult: "success", feeRate: 10.8 },
-    { id: "acct-04", market: "coupang", storeName: "스마트홈셀러", sellerAccount: "coupang_wing_02", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:10", lastResult: "success", feeRate: 10.8 },
-    { id: "acct-05", market: "11st", storeName: "글로벌픽스토어", sellerAccount: "11st_global_01", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:32", lastResult: "success", feeRate: 13 },
-    { id: "acct-06", market: "11st", storeName: "홈앤키친11", sellerAccount: "11st_home_02", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:28", lastResult: "success", feeRate: 13 },
-    { id: "acct-07", market: "gmarket", storeName: "지마켓리빙박스", sellerAccount: "gmarket_living_01", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:24", lastResult: "success", feeRate: 12 },
-    { id: "acct-08", market: "gmarket", storeName: "데일리홈마켓", sellerAccount: "gmarket_home_02", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:21", lastResult: "success", feeRate: 12 },
-    { id: "acct-09", market: "auction", storeName: "옥션리빙셀렉트", sellerAccount: "auction_living_01", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:18", lastResult: "success", feeRate: 12 },
-    { id: "acct-10", market: "auction", storeName: "하우스웨어옥션", sellerAccount: "auction_home_02", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:15", lastResult: "success", feeRate: 12 },
+    { id: "acct-01", market: "naver", storeName: "리빙온마켓", sellerAccount: "naver_living_01", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:42", lastResult: "success", feeRate: 3.6, shippingProcessPreference: "DIRECT_DELIVERY" },
+    { id: "acct-02", market: "naver", storeName: "홈데코랩", sellerAccount: "naver_home_02", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:39", lastResult: "success", feeRate: 3.8, shippingProcessPreference: "OVERSEAS_OTHER_DELIVERY" },
+    { id: "acct-03", market: "coupang", storeName: "쿠팡라이프샵", sellerAccount: "coupang_wing_01", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:36", lastResult: "success", feeRate: 10.8, shippingProcessPreference: "DELIVERY" },
+    { id: "acct-04", market: "coupang", storeName: "스마트홈셀러", sellerAccount: "coupang_wing_02", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:10", lastResult: "success", feeRate: 10.8, shippingProcessPreference: "DELIVERY" },
+    { id: "acct-05", market: "11st", storeName: "글로벌픽스토어", sellerAccount: "11st_global_01", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:32", lastResult: "success", feeRate: 13, shippingProcessPreference: "DIRECT_DELIVERY" },
+    { id: "acct-06", market: "11st", storeName: "홈앤키친11", sellerAccount: "11st_home_02", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:28", lastResult: "success", feeRate: 13, shippingProcessPreference: "DELIVERY" },
+    { id: "acct-07", market: "gmarket", storeName: "지마켓리빙박스", sellerAccount: "gmarket_living_01", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:24", lastResult: "success", feeRate: 12, shippingProcessPreference: "DELIVERY" },
+    { id: "acct-08", market: "gmarket", storeName: "데일리홈마켓", sellerAccount: "gmarket_home_02", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:21", lastResult: "success", feeRate: 12, shippingProcessPreference: "DELIVERY" },
+    { id: "acct-09", market: "auction", storeName: "옥션리빙셀렉트", sellerAccount: "auction_living_01", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:18", lastResult: "success", feeRate: 12, shippingProcessPreference: "DELIVERY" },
+    { id: "acct-10", market: "auction", storeName: "하우스웨어옥션", sellerAccount: "auction_home_02", authStatus: "connected", active: true, lastCollectedAt: "2026-06-15 09:15", lastResult: "success", feeRate: 12, shippingProcessPreference: "DELIVERY" },
 ];
 
 const emptyForm: AddForm = {
     storeName: "",
     businessNumber: "",
+    shippingProcessPreference: "DELIVERY",
     naverSellerId: "",
     naverClientId: "",
     naverClientSecret: "",
@@ -117,7 +123,7 @@ const defaultFeeRate: Record<MarketKey, number> = {
     auction: 12,
 };
 
-const CREATABLE_MARKETS: readonly MarketKey[] = ["naver"];
+const CREATABLE_MARKETS: readonly MarketKey[] = ["naver", "coupang", "11st", "gmarket", "auction"];
 
 export default function MarketsPage() {
     const [accounts, setAccounts] = useState(initialAccounts);
@@ -304,6 +310,7 @@ export default function MarketsPage() {
                 ...account,
                 storeName: editForm.storeName.trim(),
                 businessNumber: editForm.businessNumber.trim(),
+                shippingProcessPreference: editingAccount.shippingProcessPreference,
             } : account));
             setEditingAccount(null);
             toast.info("데모 계정 정보만 화면에서 수정했습니다.");
@@ -321,6 +328,8 @@ export default function MarketsPage() {
                     settings: {
                         businessNumber: editForm.businessNumber.trim(),
                         feeRate: editingAccount.feeRate,
+                        directDeliveryEnabled: editingAccount.shippingProcessPreference === "DIRECT_DELIVERY",
+                        shippingProcessPreference: editingAccount.shippingProcessPreference,
                     },
                 }),
             });
@@ -377,11 +386,13 @@ export default function MarketsPage() {
     };
 
     return (
-        <div className="min-h-svh bg-white px-6 py-5 xl:px-8">
-            <div className="mb-5 flex items-center justify-between gap-3">
-                <h1 className="text-[24px] font-extrabold tracking-tight text-slate-950">마켓연동</h1>
-                <Button onClick={() => setAddDialogOpen(true)}>마켓 추가</Button>
-            </div>
+        <div className="min-h-full p-4 sm:p-6 lg:p-8">
+            <PageHeader
+                title="마켓연동"
+                eyebrow="COMMERCE LIFE · CONNECTIONS"
+                description="판매처 계정의 인증 상태와 주문수집 연결을 한 곳에서 점검하고 관리합니다."
+                actions={<Button onClick={() => setAddDialogOpen(true)}>마켓 추가</Button>}
+            />
 
             <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
                 <DialogContent className="max-h-[90vh] max-w-[620px] overflow-y-auto p-0">
@@ -391,10 +402,16 @@ export default function MarketsPage() {
 
                     <div className="space-y-5 px-5 py-4">
                         <div className="grid gap-3">
-                            <h3 className="text-sm font-bold text-slate-800">기본 정보</h3>
+                            <h3 className="text-sm font-bold text-foreground">기본 정보</h3>
                             <Field label="마켓플레이스" required>
-                                <Select value={selectedMarket} onValueChange={(value) => setSelectedMarket(value as MarketKey)}>
-                                    <SelectTrigger className="h-10 w-full border-slate-300 bg-white">
+                                <Select value={selectedMarket} onValueChange={(value) => {
+                                    const market = value as MarketKey;
+                                    setSelectedMarket(market);
+                                    if (!supportsShippingProcessPreference(market, form.shippingProcessPreference)) {
+                                        updateForm("shippingProcessPreference", "DELIVERY");
+                                    }
+                                }}>
+                                    <SelectTrigger className="h-10 w-full border-border bg-card">
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -421,8 +438,16 @@ export default function MarketsPage() {
 
                         <Separator />
 
+                        <ShippingPreferenceField
+                            market={selectedMarket}
+                            value={form.shippingProcessPreference}
+                            onValueChange={(value) => updateForm("shippingProcessPreference", value)}
+                        />
+
+                        <Separator />
+
                         <div className="grid gap-3">
-                            <h3 className="text-sm font-bold text-slate-800">인증 정보</h3>
+                            <h3 className="text-sm font-bold text-foreground">인증 정보</h3>
                             {selectedMarket === "naver" ? (
                                 <div className="grid gap-3">
                                     <Field label="연동용 판매자 ID" required>
@@ -522,10 +547,10 @@ export default function MarketsPage() {
                         <>
                             <div className="space-y-5 px-5 py-4">
                                 <div className="grid gap-3">
-                                    <h3 className="text-sm font-bold text-slate-800">기본 정보</h3>
+                                    <h3 className="text-sm font-bold text-foreground">기본 정보</h3>
                                     <Field label="마켓플레이스" required>
                                         <Select value={editingAccount.market} disabled>
-                                            <SelectTrigger className="h-10 w-full border-slate-300 bg-slate-50">
+                                            <SelectTrigger className="h-10 w-full border-border bg-muted">
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -552,14 +577,55 @@ export default function MarketsPage() {
 
                                 <Separator />
 
-                                <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                                <div className="grid gap-3">
+                                    <div>
+                                        <h3 className="text-sm font-bold text-foreground">배송중 처리 기본값</h3>
+                                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                            주문의 개별·일괄·자동 배송중 처리에서 이 값을 기본으로 사용합니다. 주문에서 다른 방식을 선택하면 주문 선택값을 우선합니다.
+                                        </p>
+                                    </div>
+                                    <Select
+                                        value={editingAccount.shippingProcessPreference}
+                                        onValueChange={(value) => setEditingAccount((current) => current ? {
+                                            ...current,
+                                            shippingProcessPreference: value as ShippingProcessPreference,
+                                        } : current)}
+                                    >
+                                        <SelectTrigger className="h-10 w-full border-border bg-card">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="DELIVERY">송장입력으로 처리</SelectItem>
+                                            {supportsConfigurableShippingMethod(editingAccount.market) ? (
+                                                <SelectItem value="DIRECT_DELIVERY">직접전달로 처리</SelectItem>
+                                            ) : null}
+                                            {editingAccount.market === "naver" ? (
+                                                <SelectItem value="OVERSEAS_OTHER_DELIVERY">해외기타배송으로 처리</SelectItem>
+                                            ) : null}
+                                        </SelectContent>
+                                    </Select>
+                                    {supportsConfigurableShippingMethod(editingAccount.market) ? (
+                                        <div className="flex gap-2 rounded-md border border-border bg-muted/60 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                                            <LockKeyhole className="mt-0.5 size-4 shrink-0" />
+                                            <span>전송된 주문의 처리 방식은 API로 바꿀 수 없습니다. 변경이 필요하면 마켓 관리자에서 직접 수정한 뒤 주문을 다시 수집해야 합니다.</span>
+                                        </div>
+                                    ) : (
+                                        <div className="rounded-md border border-border bg-muted/60 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                                            {MARKET_LABELS[editingAccount.market]}는 송장입력 방식으로 고정됩니다.
+                                        </div>
+                                    )}
+                                </div>
+
+                                <Separator />
+
+                                <div className="rounded-md border border-border bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
                                     저장된 API 비밀키는 화면에 다시 표시하지 않습니다. 키를 교체하려면 별도의 재인증 절차를 사용해야 합니다.
                                 </div>
                                 {editingAccount.market === "naver" && editingAccount.source === "api" ? (
-                                    <div className="grid gap-3 rounded-md border border-amber-200 bg-amber-50/60 p-3">
+                                    <div className="grid gap-3 rounded-md border border-border bg-muted/60 p-3">
                                         <div>
-                                            <h3 className="text-sm font-bold text-slate-800">자격증명 교체 및 재인증</h3>
-                                            <p className="mt-1 text-xs leading-5 text-slate-600">
+                                            <h3 className="text-sm font-bold text-foreground">자격증명 교체 및 재인증</h3>
+                                            <p className="mt-1 text-xs leading-5 text-muted-foreground">
                                                 새 키를 저장하면 기존 키는 즉시 폐기되고 API 쓰기 기능은 연결 확인이 끝날 때까지 비활성화됩니다.
                                             </p>
                                         </div>
@@ -606,8 +672,8 @@ export default function MarketsPage() {
                     <DialogHeader className="border-b px-5 py-4">
                         <DialogTitle>계정 삭제</DialogTitle>
                     </DialogHeader>
-                    <div className="px-5 py-4 text-sm leading-6 text-slate-700">
-                        <p className="font-semibold text-slate-950">{deletingAccount?.storeName}</p>
+                    <div className="px-5 py-4 text-sm leading-6 text-foreground">
+                        <p className="font-semibold text-foreground">{deletingAccount?.storeName}</p>
                         <p>이 마켓 연동 계정을 삭제할까요?</p>
                     </div>
                     <div className="flex justify-end gap-2 border-t px-5 py-4">
@@ -621,16 +687,15 @@ export default function MarketsPage() {
                 </DialogContent>
             </Dialog>
 
-            <div>
-                <section className="rounded-md border border-slate-200 bg-white shadow-sm">
-                    <div className="flex items-center justify-between border-b bg-slate-50 px-4 py-3">
-                        <h2 className="text-base font-bold text-slate-950">연동 계정</h2>
-                        <div className="text-xs text-slate-500">
+            <Card className="mt-6 overflow-hidden rounded-xl shadow-sm">
+                    <div className="flex items-center justify-between border-b bg-muted px-4 py-3">
+                        <h2 className="text-base font-bold text-foreground">연동 계정</h2>
+                        <div className="text-xs text-muted-foreground">
                             활성 {accounts.filter((account) => account.active).length}개 / 전체 {accounts.length}개
                         </div>
                     </div>
                     {accountsQuery.isError ? (
-                        <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+                        <div className="border-b border-border bg-muted px-4 py-2 text-xs text-foreground">
                             실서비스 DB에 연결하지 못해 데모 계정을 표시합니다. PostgreSQL·마이그레이션·개발 인증 설정을 확인하세요.
                         </div>
                     ) : null}
@@ -640,6 +705,7 @@ export default function MarketsPage() {
                                 <TableRow className="bg-muted/50">
                                     <TableHead>마켓</TableHead>
                                     <TableHead>스토어명</TableHead>
+                                    <TableHead>기본 배송중 처리</TableHead>
                                     <TableHead>연동상태</TableHead>
                                     <TableHead>활성</TableHead>
                                     <TableHead className="text-right">관리</TableHead>
@@ -650,6 +716,11 @@ export default function MarketsPage() {
                                     <TableRow key={account.id}>
                                         <TableCell className="whitespace-nowrap font-medium">{MARKET_LABELS[account.market]}</TableCell>
                                         <TableCell className="whitespace-nowrap text-xs font-semibold">{account.storeName}</TableCell>
+                                        <TableCell>
+                                            <Badge variant="outline" className="whitespace-nowrap border-border bg-muted text-foreground">
+                                                {shippingPreferenceLabel(account.shippingProcessPreference)}
+                                            </Badge>
+                                        </TableCell>
                                         <TableCell>
                                             <Badge variant="outline" className={authBadgeClass(account.authStatus)}>
                                                 {authLabel[account.authStatus]}
@@ -686,8 +757,7 @@ export default function MarketsPage() {
                             </TableBody>
                         </Table>
                     </div>
-                </section>
-            </div>
+            </Card>
         </div>
     );
 }
@@ -707,6 +777,7 @@ function createEditForm(account: MarketAccount): AddForm {
         ...emptyForm,
         storeName: account.storeName,
         businessNumber: account.businessNumber ?? "",
+        shippingProcessPreference: account.shippingProcessPreference,
     };
 }
 
@@ -716,6 +787,11 @@ function createAccountPayload(market: MarketKey, form: AddForm): Record<string, 
         settings: {
             businessNumber: form.businessNumber.trim(),
             feeRate: defaultFeeRate[market],
+            directDeliveryEnabled: supportsConfigurableShippingMethod(market)
+                && form.shippingProcessPreference === "DIRECT_DELIVERY",
+            shippingProcessPreference: supportsShippingProcessPreference(market, form.shippingProcessPreference)
+                ? form.shippingProcessPreference
+                : "DELIVERY",
         },
     };
 
@@ -783,6 +859,13 @@ function toUiMarketAccount(account: ApiMarketAccount): MarketAccount {
     const businessNumber = typeof account.settings.businessNumber === "string"
         ? account.settings.businessNumber
         : "";
+    const rawShippingPreference = account.settings.shippingProcessPreference;
+    const shippingProcessPreference: ShippingProcessPreference = (
+        rawShippingPreference === "DIRECT_DELIVERY"
+        || rawShippingPreference === "OVERSEAS_OTHER_DELIVERY"
+    ) && supportsShippingProcessPreference(market, rawShippingPreference)
+        ? rawShippingPreference
+        : "DELIVERY";
     const authStatus: MarketAccount["authStatus"] = account.authStatus === "CONNECTED"
         ? "connected"
         : account.authStatus === "ERROR"
@@ -805,6 +888,7 @@ function toUiMarketAccount(account: ApiMarketAccount): MarketAccount {
         feeRate,
         version: account.version,
         businessNumber,
+        shippingProcessPreference,
         source: "api",
     };
 }
@@ -826,18 +910,82 @@ function errorMessage(error: unknown): string {
 }
 
 function authBadgeClass(status: MarketAccount["authStatus"]): string {
-    if (status === "connected") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    if (status === "error") return "border-red-200 bg-red-50 text-red-700";
-    if (status === "reauth") return "border-orange-200 bg-orange-50 text-orange-700";
-    return "border-amber-200 bg-amber-50 text-amber-700";
+    if (status === "connected") return "border-border bg-muted text-foreground";
+    if (status === "error") return "border-border bg-muted text-foreground";
+    if (status === "reauth") return "border-border bg-muted text-foreground";
+    return "border-border bg-muted text-foreground";
+}
+
+function supportsConfigurableShippingMethod(market: MarketKey): boolean {
+    return market === "naver" || market === "11st";
+}
+
+function supportsShippingProcessPreference(
+    market: MarketKey,
+    preference: ShippingProcessPreference,
+): boolean {
+    if (preference === "DELIVERY") return true;
+    if (preference === "OVERSEAS_OTHER_DELIVERY") return market === "naver";
+    return supportsConfigurableShippingMethod(market);
+}
+
+function shippingPreferenceLabel(preference: ShippingProcessPreference): string {
+    if (preference === "DIRECT_DELIVERY") return "직접전달";
+    if (preference === "OVERSEAS_OTHER_DELIVERY") return "해외기타배송";
+    return "송장입력";
+}
+
+function ShippingPreferenceField({
+    market,
+    value,
+    onValueChange,
+}: {
+    market: MarketKey;
+    value: ShippingProcessPreference;
+    onValueChange: (value: ShippingProcessPreference) => void;
+}) {
+    const configurable = supportsConfigurableShippingMethod(market);
+
+    return (
+        <div className="grid gap-3">
+            <div>
+                <h3 className="text-sm font-bold text-foreground">배송중 처리 기본값</h3>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    {configurable
+                        ? "이 스토어 주문의 개별·일괄·자동 배송중 처리에 사용할 기본 방식을 선택하세요. 주문에서는 다른 지원 방식으로 변경할 수 있습니다."
+                        : `${MARKET_LABELS[market]}는 송장입력 방식으로 고정됩니다.`}
+                </p>
+            </div>
+            <Select
+                value={supportsShippingProcessPreference(market, value) ? value : "DELIVERY"}
+                disabled={!configurable}
+                onValueChange={(next) => onValueChange(next as ShippingProcessPreference)}
+            >
+                <SelectTrigger className="h-10 w-full border-border bg-card">
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="DELIVERY">송장입력</SelectItem>
+                    {configurable ? <SelectItem value="DIRECT_DELIVERY">직접전달</SelectItem> : null}
+                    {market === "naver" ? <SelectItem value="OVERSEAS_OTHER_DELIVERY">해외기타배송</SelectItem> : null}
+                </SelectContent>
+            </Select>
+            {configurable ? (
+                <div className="flex gap-2 rounded-md border border-border bg-muted/60 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                    <LockKeyhole className="mt-0.5 size-4 shrink-0" />
+                    <span>마켓 전송 후에는 API로 방식을 변경할 수 없습니다. 오발송 시 마켓 관리자에서 직접 수정해야 합니다.</span>
+                </div>
+            ) : null}
+        </div>
+    );
 }
 
 function Field({ label, children, required = false }: { label: string; children: ReactNode; required?: boolean }) {
     return (
         <div className="grid gap-1.5">
-            <Label className="text-xs font-bold text-slate-600">
+            <Label className="text-xs font-bold text-muted-foreground">
                 {label}
-                {required ? <span className="ml-0.5 text-red-500">*</span> : null}
+                {required ? <span className="ml-0.5 text-foreground">*</span> : null}
             </Label>
             {children}
         </div>

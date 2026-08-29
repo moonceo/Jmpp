@@ -2,6 +2,7 @@ import type { TransactionClient } from "@/lib/server/db";
 import { ApiError } from "@/lib/server/http/api-error";
 import {
     acceptOrderItemCommand,
+    applyConfiguredShippingProcessPreference,
     requireConfiguredApiCapability,
     toPublicOutboundCommand,
 } from "@/lib/server/commands/service";
@@ -42,6 +43,7 @@ function orderItemRow(options: {
         capabilities: options.capabilities ?? {
             INVOICE_SUBMIT: { mode: "API" },
         },
+        settings: {},
     };
 }
 
@@ -184,6 +186,31 @@ describe("order item command acceptance", () => {
 });
 
 describe("command capability and public projection", () => {
+    it("preserves the shipping method selected for the order", () => {
+        const shippingRequest: OrderItemCommandRequest = {
+            type: "SHIPPING_PROCESS",
+            effectKey: "shipping-default",
+            expectedVersion: 3,
+            payload: {
+                requestedMethod: "DELIVERY",
+                dispatchAt: NOW.toISOString(),
+            },
+        };
+
+        expect(applyConfiguredShippingProcessPreference(shippingRequest, {
+            marketCode: "NAVER",
+            settings: { shippingProcessPreference: "DIRECT_DELIVERY" },
+        })).toMatchObject({
+            payload: { requestedMethod: "DELIVERY" },
+        });
+        expect(applyConfiguredShippingProcessPreference(shippingRequest, {
+            marketCode: "COUPANG",
+            settings: { shippingProcessPreference: "DIRECT_DELIVERY" },
+        })).toMatchObject({
+            payload: { requestedMethod: "DELIVERY" },
+        });
+    });
+
     it("permits only an explicit API mode", () => {
         expect(() => requireConfiguredApiCapability({
             ORDER_CONFIRM: { mode: "API" },

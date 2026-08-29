@@ -51,12 +51,14 @@ flowchart TD
     <h2>직접전달 선처리</h2>
     <pre class="mermaid">
 flowchart TD
-  A["상품준비"] -->|"직접전달"| B["마켓 배송중 · 내부 상품준비"]
+  A["상품준비"] -->|"배송중 처리 > 직접전달"| B["마켓 배송중 · 내부 상품준비"]
   B --> C{"구매 완료 + 송장"}
-  C -->|"소싱라이프"| D["내부 배송중"]
+  C -->|"소싱라이프"| D["내부 발송대기"]
   C -->|"외부 구매"| D
   C -->|"송장 없음"| E["완료 차단"]
-  D --> F["실제 국내배송 완료"]
+  D --> F["배송중 처리 재실행"]
+  F --> G["내부 배송중"]
+  G --> H["실제 국내배송 완료"]
     </pre>
   </section>
 
@@ -66,8 +68,8 @@ flowchart TD
       <thead><tr><th>상태</th><th>기준</th></tr></thead>
       <tbody>
         <tr><td><code>PREPARING</code></td><td>구매 완료 전. 직접전달만 먼저 처리한 주문도 포함</td></tr>
-        <tr><td><code>READY_TO_SHIP</code></td><td>구매·송장 완료, 마켓 택배 발송 전</td></tr>
-        <tr><td><code>SHIPPING</code></td><td>마켓 발송 완료 또는 직접전달 + 구매·송장 완료</td></tr>
+        <tr><td><code>READY_TO_SHIP</code></td><td>구매·송장 완료 후 배송중 처리 전</td></tr>
+        <tr><td><code>SHIPPING</code></td><td>구매·송장 확보 후 배송중 처리가 완료</td></tr>
         <tr><td><code>DELIVERED</code></td><td>실제 국내송장 배송완료</td></tr>
       </tbody>
     </table>

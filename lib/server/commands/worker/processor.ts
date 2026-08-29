@@ -354,6 +354,29 @@ async function executeWrite(input: {
                 dispatchDate: input.command.payload.dispatchAt,
                 deliveryMethod: "DIRECT_DELIVERY",
             }]);
+        } else if (input.command.type === "SHIPPING_PROCESS") {
+            const item = input.context.item;
+            result = input.command.payload.requestedMethod === "DELIVERY"
+                ? await input.client.dispatchProductOrders([{
+                    productOrderId: input.productOrderId,
+                    dispatchDate: input.command.payload.dispatchAt,
+                    deliveryMethod: "DELIVERY",
+                    deliveryCompanyCode: item?.domesticCarrierCode ?? "",
+                    trackingNumber: item?.domesticTrackingNumber ?? "",
+                }])
+                : input.command.payload.requestedMethod === "OVERSEAS_OTHER_DELIVERY"
+                    ? await input.client.dispatchProductOrders([{
+                        productOrderId: input.productOrderId,
+                        dispatchDate: input.command.payload.dispatchAt,
+                        deliveryMethod: "DELIVERY",
+                        deliveryCompanyCode: input.command.payload.carrierCode ?? "CH1",
+                        trackingNumber: input.command.payload.trackingNumber ?? "",
+                    }])
+                    : await input.client.dispatchProductOrders([{
+                    productOrderId: input.productOrderId,
+                    dispatchDate: input.command.payload.dispatchAt,
+                    deliveryMethod: "DIRECT_DELIVERY",
+                }]);
         } else {
             result = await input.client.requestCancelProductOrder(
                 input.productOrderId,
@@ -507,6 +530,7 @@ export async function processOneNaverOutboundCommand(
                 providerStatus: target.providerStatus,
                 applied: true,
                 source: "PRE_READ_RECONCILIATION",
+                ...(target.deliveryMethod ? { deliveryMethod: target.deliveryMethod } : {}),
             },
         });
         return true;

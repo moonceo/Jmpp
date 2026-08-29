@@ -1,19 +1,25 @@
-﻿"use client";
+"use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { LoaderCircle, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { withBrowserSecurity } from "@/lib/client/http";
 import type { SavedLiveSourcingMapping } from "@/components/orders/live-sourcing-mapping-dialog";
+import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { OrderSearch } from "@/components/orders/shared/order-search";
 import { OrderTable } from "@/components/orders/shared/order-table";
-import { createColumns, OrderProcessActions, type OrderColumnActions } from "@/components/orders/shared/columns";
+import { createColumns, getProcessActionVisibility, OrderProcessActions, type OrderColumnActions } from "@/components/orders/shared/columns";
+import { hasStartedDomesticShipping, isDirectDeliveryEligible, ShippingProcessDialog, supportsDirectDelivery, supportsOverseasOtherDelivery, type ShippingProcessMethod } from "@/components/orders/shipping-process-dialog";
 import { SourcingWorkflowDialog } from "@/components/orders/sourcing-workflow-dialog";
 import {
     SellerCancelDialog,
@@ -22,15 +28,27 @@ import {
     type SellerCancelIntent,
     type SellerCancelSubmitResult,
 } from "@/components/orders/seller-cancel-dialog";
-import { MARKET_ABBREVIATIONS, MARKET_BADGE_CLASSES, ORDER_STATUSES } from "@/lib/constants/orders";
-import { mockOrders } from "@/lib/mock-data/orders";
+import { ORDER_STATUSES } from "@/lib/constants/orders";
+import {
+    createDemoSellerCancelClaim,
+    DEMO_SELLER_CANCEL_STORAGE_KEY,
+    type DemoClaimDetail,
+} from "@/lib/mock-data/claims";
+import { mockLinkedStores } from "@/lib/mock-data/market-stores";
+import {
+    advanceDemoSourcingRefund,
+    createSourcingRefundRequest,
+    getSourcingRefundAvailability,
+    prepareOrderForResourcingAfterRefund,
+    submitDemoReturnLogistics,
+    type SourcingReturnLogisticsDraft,
+} from "@/lib/sourcing-refund";
 import { getSourcingProgressViewMeta, hasCompletedSourcingPurchase, resolveSourcingProgressStage } from "@/lib/sourcing-progress";
-import { cn } from "@/lib/utils";
-import { ClaimType, MarketType, Order, OrderStatus, Recipient, SourcingForwarderSelection, SourcingLifeMatch, SourcingProgressStage } from "@/types/order";
+import { ClaimType, MarketType, Order, OrderStatus, Recipient, SourcingForwarderSelection, SourcingLifeMatch, SourcingProgressStage, SourcingRefundDraft } from "@/types/order";
 
 export type OrdersView = "all" | "new" | "preparing" | "waiting" | "shipping" | "delivered" | "claims";
 type ClaimTypeFilter = "all" | ClaimType;
-type OrderListStatus = SourcingProgressStage | "ON_HOLD" | "PURCHASE_CONFIRMED";
+type OrderListStatus = Exclude<SourcingProgressStage, "MATCH_PENDING_REVIEW"> | "PURCHASE_CONFIRMED";
 type StatusFilter = "all" | OrderListStatus;
 type CollectionView = Exclude<OrdersView, "claims">;
 
@@ -43,7 +61,7 @@ interface SyncedInvoice {
     receivedAt: string;
     uploadedToMarketAt?: string;
     source?: "sourcing_life" | "manual";
-    uploadMode?: "auto" | "manual";
+    uploadMode?: "auto" | "manual" | "crawler";
 }
 
 interface CachedMatch {
@@ -61,6 +79,7 @@ interface SourcingPayment {
 
 interface OrdersPageClientProps {
     activeView: OrdersView;
+    initialOrders: Order[];
 }
 
 interface ApiOrderItem {
@@ -74,11 +93,16 @@ interface ApiOrderItem {
     quantity: number;
     unitPrice: string;
     itemTotal: string;
+    paymentShippingFee?: string;
     internalWorkStatus: "NEW" | "PREPARING" | "READY_TO_SHIP" | "SHIPPING" | "DELIVERED" | "CANCELED" | "ON_HOLD";
     sourcingStatus: string;
     sourcingVerificationProvenance: "MANUAL_UNVERIFIED" | "SERVER_VERIFIED" | null;
     marketFulfillmentStatus: string | null;
     marketDeliveryMethod: string | null;
+    marketCarrierCode: string | null;
+    marketTrackingNumber: string | null;
+    marketShippingRegisteredAt: string | null;
+    shippingProcessStarted: boolean;
     domesticCarrierCode: string | null;
     domesticTrackingNumber: string | null;
     version: string;
@@ -108,6 +132,9 @@ interface ApiMarketAccountSummary {
     isActive: boolean;
     marketCode: string;
     storeName: string;
+    settings?: {
+        shippingProcessPreference?: ShippingProcessMethod;
+    };
 }
 
 type ApiSyncRunStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "PARTIAL" | "RETRY" | "FAILED" | "CANCELED" | "DEAD";
@@ -207,8 +234,7 @@ export const collectionTabs: Array<{ view: CollectionView; href: string }> = [
 
 const STATUS_FILTER_LABELS: Record<OrderListStatus, string> = {
     MATCH_REQUIRED: "소싱필요",
-    MATCH_PENDING_REVIEW: "소싱 검증대기",
-    MATCHED: "소싱완료",
+    MATCHED: "매칭완료",
     PAYMENT_WAITING: "결제대기",
     EXTERNAL_PURCHASE: "결제완료",
     SOURCED: "결제완료",
@@ -216,7 +242,6 @@ const STATUS_FILTER_LABELS: Record<OrderListStatus, string> = {
     CUSTOMS_CLEARANCE: "통관 중",
     DOMESTIC_SHIPPING: "국내 배송중",
     DELIVERED: "배송완료",
-    ON_HOLD: "처리보류",
     PURCHASE_CONFIRMED: "구매확정",
 };
 
@@ -225,12 +250,12 @@ const ALL_STATUS_FILTER_VALUES = (Object.keys(STATUS_FILTER_LABELS) as OrderList
 
 const STATUS_FILTER_VALUES_BY_VIEW: Record<OrdersView, readonly OrderListStatus[]> = {
     all: ALL_STATUS_FILTER_VALUES,
-    new: ["MATCH_REQUIRED", "MATCH_PENDING_REVIEW"],
-    preparing: ["MATCH_REQUIRED", "MATCH_PENDING_REVIEW", "MATCHED", "PAYMENT_WAITING"],
+    new: ["MATCH_REQUIRED"],
+    preparing: ["MATCH_REQUIRED", "MATCHED", "PAYMENT_WAITING"],
     waiting: ["SOURCED", "CHINA_SHIPPING", "CUSTOMS_CLEARANCE", "DOMESTIC_SHIPPING"],
     shipping: ["SOURCED", "CHINA_SHIPPING", "CUSTOMS_CLEARANCE", "DOMESTIC_SHIPPING"],
     delivered: ["DELIVERED", "PURCHASE_CONFIRMED"],
-    claims: ["MATCH_REQUIRED", "MATCH_PENDING_REVIEW", "MATCHED", "PAYMENT_WAITING", "SOURCED", "CHINA_SHIPPING", "CUSTOMS_CLEARANCE", "DOMESTIC_SHIPPING", "DELIVERED"],
+    claims: ["MATCH_REQUIRED", "MATCHED", "PAYMENT_WAITING", "SOURCED", "CHINA_SHIPPING", "CUSTOMS_CLEARANCE", "DOMESTIC_SHIPPING", "DELIVERED"],
 };
 
 type OrderStatusProjection = Pick<
@@ -244,12 +269,13 @@ export function getSourcingProgressStage(order: OrderStatusProjection): Sourcing
 
 export function getOrderListStatuses(order: OrderStatusProjection): OrderListStatus[] {
     const sourcingStage = getSourcingProgressStage(order);
+    const visibleSourcingStage: Exclude<SourcingProgressStage, "MATCH_PENDING_REVIEW"> = sourcingStage === "MATCH_PENDING_REVIEW"
+        ? "MATCH_REQUIRED"
+        : sourcingStage;
     const statuses: OrderListStatus[] = [
         order.status === "DELIVERED"
             ? "DELIVERED"
-            : order.status === "ON_HOLD"
-                ? "ON_HOLD"
-                : sourcingStage === "EXTERNAL_PURCHASE" ? "SOURCED" : sourcingStage,
+            : visibleSourcingStage === "EXTERNAL_PURCHASE" ? "SOURCED" : visibleSourcingStage,
     ];
 
     if (order.status === "DELIVERED" && order.marketOrderStatus === "PURCHASE_DECIDED") {
@@ -316,12 +342,10 @@ function hasCompletedPurchase(order: Order) {
     return hasCompletedSourcingPurchase(order);
 }
 
-function shouldMoveDirectDeliveryToShipping(order: Order, hasDomesticInvoice = Boolean(order.domesticInvoice?.trackingNumber?.trim())) {
-    return order.status === "READY_TO_SHIP"
-        && order.marketOrderStatus === "DELIVERING"
-        && order.marketDeliveryMethod === "DIRECT_DELIVERY"
-        && hasCompletedPurchase(order)
-        && hasDomesticInvoice;
+function hasCompletedMarketDispatch(order: Order) {
+    return order.marketOrderStatus === "DELIVERING"
+        || order.marketOrderStatus === "DELIVERED"
+        || order.marketOrderStatus === "PURCHASE_DECIDED";
 }
 
 function applyCachedState(
@@ -347,11 +371,16 @@ function applyCachedState(
         if (payment) {
             nextOrder = {
                 ...nextOrder,
-                status: "READY_TO_SHIP" as OrderStatus,
+                status: hasCompletedMarketDispatch(nextOrder) ? "SHIPPING" as OrderStatus : "READY_TO_SHIP" as OrderStatus,
                 sourcingLifeSyncStatus: "PAID" as const,
                 sourcingProgressStage: "SOURCED" as const,
                 sourcingLifeOrderId: payment.sourcingLifeOrderId,
                 sourcingLifeSyncedAt: payment.paidAt,
+                taoWorldPurchase: nextOrder.taoWorldPurchase ?? createDemoTaoWorldPurchase(
+                    nextOrder.id,
+                    payment.paidAt,
+                    payment.actualPaymentAmount,
+                ),
                 sourcingLifeActualPayment: {
                     amount: payment.actualPaymentAmount,
                     currency: "KRW" as const,
@@ -366,9 +395,9 @@ function applyCachedState(
             const uploadedToMarketAt = canEnterShipping ? invoice.uploadedToMarketAt : undefined;
             nextOrder = {
                 ...nextOrder,
-                status: uploadedToMarketAt && nextOrder.marketDeliveryMethod !== "DIRECT_DELIVERY" ? "SHIPPING" as OrderStatus : nextOrder.status,
+                status: uploadedToMarketAt ? "SHIPPING" as OrderStatus : nextOrder.status,
                 marketOrderStatus: uploadedToMarketAt ? "DELIVERING" as const : nextOrder.marketOrderStatus,
-                marketDeliveryMethod: uploadedToMarketAt && nextOrder.marketDeliveryMethod !== "DIRECT_DELIVERY" ? "DELIVERY" as const : nextOrder.marketDeliveryMethod,
+                marketDeliveryMethod: uploadedToMarketAt ? "DELIVERY" as const : nextOrder.marketDeliveryMethod,
                 sourcingLifeSyncStatus: isSourcingLifeInvoice ? "INVOICE_RECEIVED" as const : nextOrder.sourcingLifeSyncStatus,
                 sourcingProgressStage: isSourcingLifeInvoice ? nextOrder.sourcingProgressStage ?? "SOURCED" as const : nextOrder.sourcingProgressStage,
                 sourcingLifeSyncedAt: isSourcingLifeInvoice ? invoice.receivedAt : nextOrder.sourcingLifeSyncedAt,
@@ -383,15 +412,11 @@ function applyCachedState(
             };
         }
 
-        if (shouldMoveDirectDeliveryToShipping(nextOrder)) {
-            nextOrder = { ...nextOrder, status: "SHIPPING" as OrderStatus };
-        }
-
         return nextOrder;
     });
 }
 
-function createDummyInvoice(orderId: string, index: number, uploadedToMarketAt?: string, uploadMode?: "auto" | "manual"): SyncedInvoice {
+function createDummyInvoice(orderId: string, index: number, uploadedToMarketAt?: string, uploadMode?: "auto" | "manual" | "crawler"): SyncedInvoice {
     const now = new Date().toISOString().slice(0, 16).replace("T", " ");
 
     return {
@@ -402,6 +427,19 @@ function createDummyInvoice(orderId: string, index: number, uploadedToMarketAt?:
         uploadedToMarketAt,
         source: "sourcing_life",
         uploadMode,
+    };
+}
+
+function createDemoTaoWorldPurchase(orderId: string, paidAt: string, amountKrw: number): NonNullable<Order["taoWorldPurchase"]> {
+    const digits = orderId.replace(/\D/g, "").slice(-12).padStart(12, "0");
+    return {
+        distributorId: "2100000927014",
+        purchaseOrderId: `2608284${digits}`,
+        purchaseOrderLineId: `2000${digits}`,
+        payOrderId: `2597049${digits}`,
+        currency: "CNY",
+        paidAmountCny: Number(Math.max(0.01, amountKrw / 190).toFixed(2)),
+        paidAt: paidAt.includes("T") ? paidAt : paidAt.replace(" ", "T") + ":00.000Z",
     };
 }
 
@@ -418,6 +456,23 @@ export function createSellerCanceledOrder(order: Order, canceledAt: string): Ord
         sellerCanceledAt: canceledAt,
         failureReason: "판매자 주문취소 완료",
     };
+}
+
+function saveDemoSellerCancelClaim(order: Order, canceledAt: string, reason: string): void {
+    if (typeof window === "undefined") return;
+
+    let current: DemoClaimDetail[] = [];
+    try {
+        const stored = window.localStorage.getItem(DEMO_SELLER_CANCEL_STORAGE_KEY);
+        const parsed: unknown = stored ? JSON.parse(stored) : [];
+        current = Array.isArray(parsed) ? parsed as DemoClaimDetail[] : [];
+    } catch {
+        current = [];
+    }
+
+    const nextClaim = createDemoSellerCancelClaim(order, canceledAt, reason);
+    const withoutSameOrder = current.filter((claim) => claim.salesOrderId !== order.id);
+    window.localStorage.setItem(DEMO_SELLER_CANCEL_STORAGE_KEY, JSON.stringify([nextClaim, ...withoutSameOrder]));
 }
 
 async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
@@ -440,6 +495,14 @@ async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
 
 export function mapApiOrderStatus(status: ApiOrderItem["internalWorkStatus"]): OrderStatus {
     return status;
+}
+
+export function mapApiManagedOrderStatus(
+    status: ApiOrderItem["internalWorkStatus"],
+    sourcingStatus: string,
+): OrderStatus {
+    void sourcingStatus;
+    return mapApiOrderStatus(status);
 }
 
 export function mapApiSourcingStatus(status: string): Order["sourcingLifeSyncStatus"] {
@@ -486,7 +549,7 @@ function toUiOrders(apiOrders: ApiOrder[]): Order[] {
         storeName: order.storeName,
         orderDate: order.orderedAt,
         marketPaidAt: order.paidAt ?? undefined,
-        status: mapApiOrderStatus(item.internalWorkStatus),
+        status: mapApiManagedOrderStatus(item.internalWorkStatus, item.sourcingStatus),
         buyerName: order.buyerNameMasked ?? "마스킹",
         buyerPhone: "-",
         recipient: {
@@ -505,6 +568,7 @@ function toUiOrders(apiOrders: ApiOrder[]): Order[] {
             marketLink: item.productUrl ?? undefined,
         },
         paymentPrice: Number(item.itemTotal),
+        paymentShippingFee: Number(item.paymentShippingFee ?? 0),
         platformFee: 0,
         expectedSettlement: Number(item.itemTotal),
         sourcingLifeSyncStatus: mapApiSourcingStatus(item.sourcingStatus),
@@ -512,7 +576,17 @@ function toUiOrders(apiOrders: ApiOrder[]): Order[] {
             ? "MATCH_PENDING_REVIEW"
             : mapApiProgress(item.sourcingStatus),
         marketOrderStatus: mapApiMarketOrderStatus(item.marketFulfillmentStatus),
-        marketDeliveryMethod: item.marketDeliveryMethod === "DIRECT_DELIVERY" ? "DIRECT_DELIVERY" : "DELIVERY",
+        marketDeliveryMethod: item.marketDeliveryMethod === "DIRECT_DELIVERY"
+            ? "DIRECT_DELIVERY"
+            : item.marketDeliveryMethod === "OVERSEAS_OTHER_DELIVERY"
+                ? "OVERSEAS_OTHER_DELIVERY"
+                : item.marketDeliveryMethod === "DELIVERY" ? "DELIVERY" : undefined,
+        marketShippingReference: item.marketDeliveryMethod === "OVERSEAS_OTHER_DELIVERY" && item.marketTrackingNumber ? {
+            carrier: item.marketCarrierCode === "CH1" ? "해외기타택배" : item.marketCarrierCode ?? "해외기타택배",
+            trackingNumber: item.marketTrackingNumber,
+            registeredAt: item.marketShippingRegisteredAt ?? order.orderedAt,
+        } : undefined,
+        shippingProcessStarted: item.shippingProcessStarted,
         domesticInvoice: item.domesticTrackingNumber ? {
             carrier: item.domesticCarrierCode ?? "택배사 미확인",
             trackingNumber: item.domesticTrackingNumber,
@@ -524,35 +598,26 @@ function toUiOrders(apiOrders: ApiOrder[]): Order[] {
     })));
 }
 
-function toMarketCarrierCode(carrier: string): string {
-    const known: Record<string, string> = {
-        "CJ대한통운": "CJGLS",
-        "롯데택배": "LOTTE",
-        "한진택배": "HANJIN",
-        "우체국택배": "EPOST",
-    };
-
-    return known[carrier] ?? carrier;
-}
-
 function getSourcingDialogMode(order: Order | null): "match-only" | "payment" | "progress" {
     if (!order || order.status === "NEW") return "match-only";
     const progressView = getSourcingProgressViewMeta(order);
     return progressView && progressView.stage !== "PAYMENT_WAITING" ? "progress" : "payment";
 }
 
-export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
-    const [allOrders, setAllOrders] = useState<Order[]>(mockOrders);
+export function OrdersPageClient({ activeView, initialOrders }: OrdersPageClientProps) {
+    const [allOrders, setAllOrders] = useState<Order[]>(initialOrders);
+    const previousOrderStatusesRef = useRef(new Map(initialOrders.map((order) => [order.id, order.status])));
+    const [transitionedOrderIds, setTransitionedOrderIds] = useState<Set<string>>(new Set());
     const [activeSourcingOrder, setActiveSourcingOrder] = useState<Order | null>(null);
     const [sourcingCancelOrder, setSourcingCancelOrder] = useState<Order | null>(null);
     const [collectingOrders, setCollectingOrders] = useState(false);
     const [collectionStatus, setCollectionStatus] = useState<string | null>(null);
     const [autoShipping, setAutoShipping] = useState(false);
     const [claimTypeFilter, setClaimTypeFilter] = useState<ClaimTypeFilter>("all");
-    const [sellerFilter, setSellerFilter] = useState("all");
     const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
     const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
     const [bulkCancelConfirmOpen, setBulkCancelConfirmOpen] = useState(false);
+    const [bulkShippingOrders, setBulkShippingOrders] = useState<Order[]>([]);
     const isClaimView = activeView === "claims";
 
     useEffect(() => {
@@ -561,6 +626,28 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
         } catch {
             toast.warning("자동 배송중 처리 설정을 불러오지 못했습니다.");
         }
+    }, []);
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => {
+            try {
+                const stored = window.localStorage.getItem(DEMO_SELLER_CANCEL_STORAGE_KEY);
+                const parsed: unknown = stored ? JSON.parse(stored) : [];
+                if (!Array.isArray(parsed)) return;
+
+                const canceledAtByOrderId = new Map(
+                    (parsed as DemoClaimDetail[]).map((claim) => [claim.salesOrderId, claim.completedAt ?? claim.requestedAt]),
+                );
+                setAllOrders((current) => current.map((order) => {
+                    const canceledAt = canceledAtByOrderId.get(order.id);
+                    return canceledAt ? createSellerCanceledOrder(order, canceledAt) : order;
+                }));
+            } catch {
+                // A damaged demo cache must not block the built-in order scenarios.
+            }
+        }, 0);
+
+        return () => window.clearTimeout(timer);
     }, []);
 
     const handleAutoShippingChange = useCallback((checked: boolean) => {
@@ -581,6 +668,48 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
         getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
         retry: false,
     });
+    const { fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError } = orderPageQuery;
+
+    useEffect(() => {
+        if (
+            hasNextPage
+            && !isFetchingNextPage
+            && !isFetchNextPageError
+        ) {
+            void fetchNextPage();
+        }
+    }, [
+        fetchNextPage,
+        hasNextPage,
+        isFetchingNextPage,
+        isFetchNextPageError,
+    ]);
+    const marketAccountsQuery = useQuery({
+        queryKey: ["market-accounts", "shipping-process-preferences"],
+        queryFn: () => apiFetch<ApiMarketAccountSummary[]>("/api/market-accounts"),
+        retry: false,
+    });
+    const shippingPreferenceByAccount = useMemo(() => new Map(
+        (marketAccountsQuery.data ?? []).map((account) => [
+            account.id,
+            account.settings?.shippingProcessPreference,
+        ]),
+    ), [marketAccountsQuery.data]);
+    const getShippingProcessDefault = useCallback((order: Order): ShippingProcessMethod => {
+        if (order.marketDeliveryMethod === "DIRECT_DELIVERY" && supportsDirectDelivery(order)) return "DIRECT_DELIVERY";
+        if (order.marketDeliveryMethod === "OVERSEAS_OTHER_DELIVERY" && supportsOverseasOtherDelivery(order)) return "OVERSEAS_OTHER_DELIVERY";
+        if (order.marketDeliveryMethod === "DELIVERY") return "DELIVERY";
+        const preference = order.marketAccountId
+            ? shippingPreferenceByAccount.get(order.marketAccountId)
+            : undefined;
+        if (supportsOverseasOtherDelivery(order) && preference === "OVERSEAS_OTHER_DELIVERY") {
+            return "OVERSEAS_OTHER_DELIVERY";
+        }
+        if (supportsDirectDelivery(order) && preference === "DIRECT_DELIVERY") {
+            return "DIRECT_DELIVERY";
+        }
+        return "DELIVERY";
+    }, [shippingPreferenceByAccount]);
     const apiOrders = useMemo(
         () => orderPageQuery.data?.pages.flatMap((page) => page.items) ?? [],
         [orderPageQuery.data],
@@ -594,27 +723,16 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
             return matchesStatus;
         });
     }, [activeView, allOrders]);
-    const sellerOptions = useMemo(() => {
-        const options = new Map<string, { marketType: MarketType; storeName: string }>();
-
-        filteredBaseOrders.forEach((order) => {
-            const key = `${order.marketType}:${order.storeName}`;
-            if (!options.has(key)) options.set(key, { marketType: order.marketType, storeName: order.storeName });
-        });
-
-        return Array.from(options, ([value, option]) => ({ value, ...option }));
-    }, [filteredBaseOrders]);
     const statusOptions = useMemo(() => getOrderStatusFilterOptions(activeView), [activeView]);
     const activeStatusFilter = statusFilter === "all" || STATUS_FILTER_VALUES_BY_VIEW[activeView].includes(statusFilter)
         ? statusFilter
         : "all";
     const stageFilteredOrders = useMemo(() => {
         return filteredBaseOrders.filter((order) => {
-            const matchesSeller = sellerFilter === "all" || sellerFilter === `${order.marketType}:${order.storeName}`;
             const matchesStatus = activeStatusFilter === "all" || getOrderListStatuses(order).includes(activeStatusFilter);
-            return matchesSeller && matchesStatus;
+            return matchesStatus;
         });
-    }, [activeStatusFilter, filteredBaseOrders, sellerFilter]);
+    }, [activeStatusFilter, filteredBaseOrders]);
     const visibleBaseOrders = useMemo(() => {
         if (activeView === "claims") {
             let claimOrders = stageFilteredOrders;
@@ -652,11 +770,26 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
     const [orders, setOrders] = useState<Order[]>(visibleBaseOrders);
 
     useEffect(() => {
+        const previousStatuses = previousOrderStatusesRef.current;
+        const transitionedIds = allOrders.flatMap((order) => {
+            const previousStatus = previousStatuses.get(order.id);
+            return previousStatus && previousStatus !== order.status ? [order.id] : [];
+        });
+
+        previousOrderStatusesRef.current = new Map(allOrders.map((order) => [order.id, order.status]));
+        if (transitionedIds.length > 0) {
+            setTransitionedOrderIds((current) => new Set([...current, ...transitionedIds]));
+        }
+    }, [allOrders]);
+
+    useEffect(() => {
         const timer = window.setTimeout(() => {
             window.localStorage.removeItem(SYNC_STORAGE_KEY);
             window.localStorage.removeItem(MATCH_STORAGE_KEY);
             window.localStorage.removeItem(PAYMENT_STORAGE_KEY);
-            setAllOrders(hasLiveOrders ? toUiOrders(apiOrders) : mockOrders);
+            if (hasLiveOrders) {
+                setAllOrders(toUiOrders(apiOrders));
+            }
         }, 0);
 
         return () => window.clearTimeout(timer);
@@ -737,7 +870,7 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
 
     const enqueueApiCommand = useCallback(async (
         order: Order,
-        type: "ORDER_CONFIRM" | "INVOICE_SUBMIT" | "DIRECT_DELIVERY" | "SELLER_CANCEL",
+        type: "ORDER_CONFIRM" | "INVOICE_SUBMIT" | "DIRECT_DELIVERY" | "SHIPPING_PROCESS" | "SELLER_CANCEL",
         payload: Record<string, unknown>,
         effectKey: string,
     ) => {
@@ -813,8 +946,12 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
         const cachedMatch = saveSourcingMatch(order, match);
         const now = new Date().toISOString().slice(0, 16).replace("T", " ");
         const actualPaymentAmount = match.estimatedCost ? match.estimatedCost * (match.quantity ?? order.product.quantity) : order.expectedCost ?? 0;
-        const shouldAutoDispatchToMarket = autoShipping && order.marketDeliveryMethod !== "DIRECT_DELIVERY";
-        const sourcingLifeInvoice = createDummyInvoice(order.id, getOrderNumber(order), shouldAutoDispatchToMarket ? now : undefined, shouldAutoDispatchToMarket ? "auto" : undefined);
+        const selectedMethod = getShippingProcessDefault(order);
+        const hasOverseasReference = Boolean(order.marketShippingReference?.trackingNumber.trim());
+        const shouldAutoDispatchToMarket = autoShipping
+            && selectedMethod !== "DELIVERY"
+            && (selectedMethod !== "OVERSEAS_OTHER_DELIVERY" || hasOverseasReference);
+        const sourcingLifeInvoice = createDummyInvoice(order.id, getOrderNumber(order));
         if (!sourcingLifeInvoice.trackingNumber.trim()) {
             toast.error("소싱라이프 구매 완료 응답에 국내송장이 없어 상태를 변경할 수 없습니다.");
             return false;
@@ -825,19 +962,13 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
             paidAt: now,
             actualPaymentAmount,
         };
-        const directDeliveryMovesToShipping = Boolean(sourcingLifeInvoice.trackingNumber.trim() || order.domesticInvoice?.trackingNumber?.trim())
-            && order.marketOrderStatus === "DELIVERING"
-            && order.marketDeliveryMethod === "DIRECT_DELIVERY";
-
         saveSourcingPayment(payment);
         saveSyncedInvoice(sourcingLifeInvoice);
         const createCompletedOrder = (item: Order): Order => ({
                     ...item,
-                    status: (sourcingLifeInvoice.uploadedToMarketAt && item.marketDeliveryMethod !== "DIRECT_DELIVERY") || directDeliveryMovesToShipping
-                        ? "SHIPPING" as OrderStatus
-                        : "READY_TO_SHIP" as OrderStatus,
-                    marketOrderStatus: sourcingLifeInvoice.uploadedToMarketAt ? "DELIVERING" as const : item.marketOrderStatus,
-                    marketDeliveryMethod: sourcingLifeInvoice.uploadedToMarketAt && item.marketDeliveryMethod !== "DIRECT_DELIVERY" ? "DELIVERY" as const : item.marketDeliveryMethod,
+                    status: (shouldAutoDispatchToMarket || hasCompletedMarketDispatch(item)) ? "SHIPPING" as OrderStatus : "READY_TO_SHIP" as OrderStatus,
+                    marketOrderStatus: shouldAutoDispatchToMarket ? "DELIVERING" as const : item.marketOrderStatus,
+                    marketDeliveryMethod: selectedMethod,
                     sourcingLifeSyncStatus: "INVOICE_RECEIVED" as const,
                     sourcingProgressStage: "SOURCED" as const,
                     sourcingLifeOrderId: payment.sourcingLifeOrderId,
@@ -848,6 +979,11 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
                         currency: "KRW" as const,
                         paidAt: now,
                     },
+                    taoWorldPurchase: item.taoWorldPurchase ?? createDemoTaoWorldPurchase(
+                        item.id,
+                        now,
+                        payment.actualPaymentAmount,
+                    ),
                     domesticInvoice: {
                         carrier: sourcingLifeInvoice.carrier,
                         trackingNumber: sourcingLifeInvoice.trackingNumber,
@@ -859,79 +995,48 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
                 });
         setAllOrders((current) => current.map((item) => item.id === order.id ? createCompletedOrder(item) : item));
         setActiveSourcingOrder((current) => current?.id === order.id ? createCompletedOrder(current) : current);
-        if (sourcingLifeInvoice.uploadedToMarketAt) {
-            toast.success(`${order.marketOrderId} 주문의 송장을 마켓에 자동 전송하고 마켓과 내부 상태를 배송중으로 변경했습니다.`);
+        if (shouldAutoDispatchToMarket) {
+            toast.success(`${order.marketOrderId} 주문의 구매를 완료하고 ${selectedMethod === "DIRECT_DELIVERY" ? "직접전달" : "해외기타배송"} 방식으로 마켓과 내부 상태를 배송중으로 변경했습니다.`);
             return true;
         }
-        if (directDeliveryMovesToShipping) {
-            toast.success(`${order.marketOrderId} 주문의 소싱라이프 결제와 송장을 반영하고 내부 배송중으로 이동했습니다.`);
+        if (order.marketDeliveryMethod === "DIRECT_DELIVERY" && hasCompletedMarketDispatch(order)) {
+            toast.success(`${order.marketOrderId} 주문의 결제와 송장을 반영했습니다. 마켓 직접전달 상태를 유지하며 배송중에서 관리합니다.`);
             return true;
         }
-        toast.success(`${order.marketOrderId} 주문의 소싱라이프 결제와 송장을 반영하고 발송대기로 이동했습니다.`);
+        toast.success(`${order.marketOrderId} 주문의 소싱라이프 구매가 완료되었습니다. 마켓은 아직 발송 전이므로 발송대기에서 관리합니다.`);
         return true;
-    }, [autoShipping, saveSourcingMatch]);
+    }, [autoShipping, getShippingProcessDefault, saveSourcingMatch]);
 
-    const handleCompleteManualPurchase = useCallback((order: Order, invoice: { carrier: string; trackingNumber: string }) => {
+    const handleCompleteManualPurchase = useCallback((order: Order) => {
         if (order.dataSource === "api") {
-            toast.info("실주문의 직접구매 국내송장 원장은 다음 구현 단계입니다. 데모 상태로 변경하지 않았습니다.");
-            return;
-        }
-        if (!invoice.trackingNumber.trim()) {
-            toast.info(order.marketDeliveryMethod === "DIRECT_DELIVERY"
-                ? "직접전달 주문의 내부 배송 추적에도 국내송장번호가 필요합니다."
-                : "직접구매 국내송장 등록에는 국내송장번호가 필요합니다.");
+            toast.info("실제 주문의 직접구매 배송처리는 현재 준비 중입니다. 주문 상태는 변경되지 않았습니다.");
             return;
         }
 
-        const now = new Date().toISOString().slice(0, 16).replace("T", " ");
-        const shouldAutoDispatchToMarket = autoShipping && order.marketDeliveryMethod !== "DIRECT_DELIVERY";
-        const syncedInvoice: SyncedInvoice = {
-            orderId: order.id,
-            carrier: invoice.carrier,
-            trackingNumber: invoice.trackingNumber.trim(),
-            receivedAt: now,
-            uploadedToMarketAt: shouldAutoDispatchToMarket ? now : undefined,
-            source: "manual",
-            uploadMode: shouldAutoDispatchToMarket ? "auto" : undefined,
-        };
-        const directDeliveryMovesToShipping = order.marketOrderStatus === "DELIVERING"
-            && order.marketDeliveryMethod === "DIRECT_DELIVERY"
-            && Boolean(syncedInvoice?.trackingNumber?.trim() || order.domesticInvoice?.trackingNumber?.trim());
-
-        saveSyncedInvoice(syncedInvoice);
+        const configuredMethod = getShippingProcessDefault(order);
+        const configuredMethodLabel = configuredMethod === "DIRECT_DELIVERY"
+            ? "직접전달"
+            : configuredMethod === "OVERSEAS_OTHER_DELIVERY"
+                ? "해외기타배송"
+                : "송장입력";
         setAllOrders((current) => current.map((item) => {
             if (item.id !== order.id) return item;
 
             return {
                 ...item,
-                status: shouldAutoDispatchToMarket || directDeliveryMovesToShipping ? "SHIPPING" as OrderStatus : "READY_TO_SHIP" as OrderStatus,
-                marketOrderStatus: shouldAutoDispatchToMarket ? "DELIVERING" as const : item.marketOrderStatus,
-                marketDeliveryMethod: shouldAutoDispatchToMarket ? "DELIVERY" as const : item.marketDeliveryMethod,
+                status: "READY_TO_SHIP" as OrderStatus,
+                marketDeliveryMethod: configuredMethod,
+                marketShippingReference: undefined,
                 sourcingLifeSyncStatus: "NOT_LINKED" as const,
                 sourcingProgressStage: "EXTERNAL_PURCHASE" as const,
                 sourcingLifeOrderId: undefined,
                 sourcingLifeActualPayment: undefined,
-                domesticInvoice: {
-                    carrier: syncedInvoice.carrier,
-                    trackingNumber: syncedInvoice.trackingNumber,
-                    receivedAt: syncedInvoice.receivedAt,
-                    uploadedToMarketAt: syncedInvoice.uploadedToMarketAt,
-                    source: "manual" as const,
-                    uploadMode: syncedInvoice.uploadMode,
-                },
+                domesticInvoice: undefined,
             };
         }));
 
-        if (shouldAutoDispatchToMarket) {
-            toast.success(`${order.marketOrderId} 주문의 직접구매 국내송장을 마켓에 자동 전송하고 마켓과 내부 상태를 배송중으로 변경했습니다.`);
-            return;
-        }
-        if (directDeliveryMovesToShipping) {
-            toast.success(`${order.marketOrderId} 주문의 직접구매 국내송장을 저장하고 내부 배송중으로 이동했습니다.`);
-            return;
-        }
-        toast.success(`${order.marketOrderId} 주문의 직접구매 국내송장번호를 저장했습니다. 발송대기에서 마켓 발송을 진행하세요.`);
-    }, [autoShipping]);
+        toast.success(`${order.marketOrderId} 주문의 직접구매를 완료했습니다. ${configuredMethodLabel} 기본값으로 발송대기에서 관리합니다.`);
+    }, [getShippingProcessDefault]);
 
     const handleSourcingAndAcceptOrder = useCallback((order: Order, match: SourcingLifeMatch) => {
         if (order.dataSource === "api") {
@@ -1047,7 +1152,8 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
             }
         }
 
-        const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+        const now = new Date().toISOString();
+        saveDemoSellerCancelClaim(order, now, intent.reasonDetail);
         setAllOrders((current) => current.map((item) => (
             item.id === order.id
                 ? createSellerCanceledOrder(item, now)
@@ -1126,7 +1232,8 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
             return { accepted: false, message };
         }
 
-        const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+        const now = new Date().toISOString();
+        targetOrders.forEach((targetOrder) => saveDemoSellerCancelClaim(targetOrder, now, intent.reasonDetail));
         setAllOrders((current) => current.map((item) => (
             targetIds.has(item.id) && item.status === "NEW"
                 ? createSellerCanceledOrder(item, now)
@@ -1176,196 +1283,182 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
         toast.success(`${order.marketOrderId} 주문의 취소거부를 마켓에 전송했습니다.`);
     }, []);
 
-    const handleSendInvoice = useCallback(async (orderIds: string[], mode: "auto" | "manual" = "manual") => {
-        const now = new Date().toISOString().slice(0, 16).replace("T", " ");
-        const selectedOrders = allOrders.filter((order) => orderIds.includes(order.id));
-        const unpaidOrders = selectedOrders.filter((order) => !hasCompletedPurchase(order));
-        const targetOrders = selectedOrders.filter((order) => hasCompletedPurchase(order) && order.domesticInvoice && !order.domesticInvoice.uploadedToMarketAt && order.marketDeliveryMethod !== "DIRECT_DELIVERY");
+    const handleProcessShipping = useCallback(async (
+        order: Order,
+        requestedMethod?: ShippingProcessMethod,
+        overseasTrackingNumber?: string,
+    ) => {
+        const marketDispatchCompleted = hasCompletedMarketDispatch(order);
+        const hasDomesticInvoice = Boolean(order.domesticInvoice?.carrier?.trim() && order.domesticInvoice.trackingNumber?.trim());
+        const manualPurchaseInvoiceReady = order.sourcingProgressStage === "EXTERNAL_PURCHASE" && hasDomesticInvoice;
+        const resolvedMethod = marketDispatchCompleted
+            ? order.marketDeliveryMethod ?? "DELIVERY"
+            : requestedMethod ?? getShippingProcessDefault(order);
+        const resolvedOverseasTracking = overseasTrackingNumber?.trim()
+            || order.marketShippingReference?.trackingNumber?.trim();
 
-        if (targetOrders.length === 0) {
-            toast.info(unpaidOrders.length > 0
-                ? "결제가 완료되지 않은 주문은 배송중으로 처리할 수 없습니다."
-                : "배송중 처리할 국내송장번호가 없습니다.");
+        if (!hasCompletedPurchase(order)) {
+            toast.info("배송중 처리는 소싱라이프 결제 또는 직접구매 배송처리를 완료한 뒤 사용할 수 있습니다.");
             return;
         }
 
-        const liveOrders = targetOrders.filter((order) => order.dataSource === "api");
-        if (liveOrders.length > 0) {
-            const results = await Promise.allSettled(liveOrders.map((order) => enqueueApiCommand(
-                order,
-                "INVOICE_SUBMIT",
-                {
-                    carrierCode: toMarketCarrierCode(order.domesticInvoice!.carrier),
-                    trackingNumber: order.domesticInvoice!.trackingNumber,
+        if (!marketDispatchCompleted && resolvedMethod === "DELIVERY" && !hasDomesticInvoice) {
+            toast.info("송장으로 처리하려면 국내송장이 필요합니다.");
+            return;
+        }
+        if (!marketDispatchCompleted
+            && resolvedMethod === "DELIVERY"
+            && !hasStartedDomesticShipping(order)
+            && !manualPurchaseInvoiceReady) {
+            toast.info("국내배송이 시작된 뒤에만 실제 송장을 마켓에 전송할 수 있습니다.");
+            return;
+        }
+        if (!marketDispatchCompleted && resolvedMethod === "DIRECT_DELIVERY" && !isDirectDeliveryEligible(order)) {
+            toast.info("직접전달은 네이버·11번가 주문에서만 사용할 수 있습니다.");
+            return;
+        }
+        if (!marketDispatchCompleted && resolvedMethod === "OVERSEAS_OTHER_DELIVERY" && !supportsOverseasOtherDelivery(order)) {
+            toast.info("해외기타배송은 네이버 주문에서만 사용할 수 있습니다.");
+            return;
+        }
+        if (!marketDispatchCompleted && resolvedMethod === "OVERSEAS_OTHER_DELIVERY" && !resolvedOverseasTracking) {
+            toast.info("해외기타배송으로 처리하려면 해외 운송장번호가 필요합니다.");
+            return;
+        }
+
+        if (order.dataSource === "api") {
+            setAllOrders((current) => current.map((item) => item.id === order.id
+                ? { ...item, shippingProcessStarted: true }
+                : item));
+            try {
+                await enqueueApiCommand(order, "SHIPPING_PROCESS", {
+                    requestedMethod: resolvedMethod,
                     dispatchAt: new Date().toISOString(),
-                },
-                `invoice:${order.domesticInvoice!.carrier}:${order.domesticInvoice!.trackingNumber}`,
-            )));
-            const accepted = results.filter((result) => result.status === "fulfilled").length;
-            const failed = results.length - accepted;
-            if (accepted > 0) toast.info(`${accepted}건의 송장 전송 명령을 접수했습니다.${failed ? ` ${failed}건은 실패했습니다.` : ""}`);
-            else toast.error("송장 전송 명령을 접수하지 못했습니다.");
+                    ...(resolvedMethod === "OVERSEAS_OTHER_DELIVERY" ? {
+                        carrierCode: "CH1",
+                        trackingNumber: resolvedOverseasTracking,
+                    } : {}),
+                }, `shipping-process:${resolvedMethod}:${resolvedMethod === "OVERSEAS_OTHER_DELIVERY" ? resolvedOverseasTracking : order.domesticInvoice?.trackingNumber ?? "none"}:v${order.version}`);
+                toast.info(`${order.marketOrderId} 배송중 처리 명령을 접수했습니다. 백엔드가 마켓 발송 여부를 확인해 재전송 없이 처리합니다.`);
+            } catch (error) {
+                setAllOrders((current) => current.map((item) => item.id === order.id
+                    ? { ...item, shippingProcessStarted: false }
+                    : item));
+                toast.error(error instanceof Error ? error.message : "배송중 처리 명령을 접수하지 못했습니다.");
+            }
             return;
         }
 
-        const invoices = targetOrders.map((order) => ({
+        if (marketDispatchCompleted) {
+            setAllOrders((current) => current.map((item) => (
+                item.id === order.id
+                    ? { ...item, status: "SHIPPING" as OrderStatus }
+                    : item
+            )));
+            toast.success(`${order.marketOrderId} 주문을 마켓 재전송 없이 내부 배송중으로 변경했습니다.`);
+            return;
+        }
+
+        if (resolvedMethod !== "DELIVERY") {
+            const methodLabel = resolvedMethod === "DIRECT_DELIVERY" ? "직접전달" : "해외기타배송";
+            const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+            setAllOrders((current) => current.map((item) => (
+                item.id === order.id
+                    ? {
+                        ...item,
+                        status: "SHIPPING" as OrderStatus,
+                        marketOrderStatus: "DELIVERING" as const,
+                        marketDeliveryMethod: resolvedMethod,
+                        marketShippingReference: resolvedMethod === "OVERSEAS_OTHER_DELIVERY" ? {
+                            carrier: "해외기타택배",
+                            trackingNumber: resolvedOverseasTracking!,
+                            registeredAt: now,
+                        } : item.marketShippingReference,
+                    }
+                    : item
+            )));
+            toast.success(`${order.marketOrderId} 주문을 ${methodLabel}로 마켓 처리하고 내부도 배송중으로 이동했습니다.`);
+            return;
+        }
+
+        const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+        const invoice: SyncedInvoice = {
             orderId: order.id,
             carrier: order.domesticInvoice!.carrier,
             trackingNumber: order.domesticInvoice!.trackingNumber,
             receivedAt: order.domesticInvoice!.receivedAt,
             uploadedToMarketAt: now,
-            source: order.domesticInvoice!.source,
-            uploadMode: mode,
-        }));
-
-        invoices.forEach(saveSyncedInvoice);
-        setAllOrders((current) => applyCachedState(current, [], [], invoices));
-        toast.success(`배송중 처리 완료: ${invoices.length}건을 마켓에 전송하고 배송중으로 이동했습니다.`);
-    }, [allOrders, enqueueApiCommand]);
-
-    const handleSendSingleInvoice = useCallback(async (order: Order, carrier?: string, trackingNumber?: string) => {
-        if (!hasCompletedPurchase(order)) {
-            toast.info("결제가 완료되지 않은 주문은 배송중으로 처리할 수 없습니다.");
-            return;
-        }
-        const normalizedTrackingNumber = (trackingNumber ?? order.domesticInvoice?.trackingNumber ?? "").trim();
-
-        if (!normalizedTrackingNumber) {
-            toast.info("배송중 처리할 국내송장번호가 없습니다.");
-            return;
-        }
-
-        if (order.dataSource === "api") {
-            const resolvedCarrier = carrier ?? order.domesticInvoice?.carrier ?? "CJ대한통운";
-            try {
-                await enqueueApiCommand(order, "INVOICE_SUBMIT", {
-                    carrierCode: toMarketCarrierCode(resolvedCarrier),
-                    trackingNumber: normalizedTrackingNumber,
-                    dispatchAt: new Date().toISOString(),
-                }, `invoice:${resolvedCarrier}:${normalizedTrackingNumber}`);
-                toast.info(`${order.marketOrderId} 송장 전송 명령을 접수했습니다. 최종 성공은 마켓 대사 후 반영됩니다.`);
-            } catch (error) {
-                toast.error(error instanceof Error ? error.message : "송장 전송 명령을 접수하지 못했습니다.");
-            }
-            return;
-        }
-
-        const now = new Date().toISOString().slice(0, 16).replace("T", " ");
-        const invoice: SyncedInvoice = {
-            orderId: order.id,
-            carrier: carrier ?? order.domesticInvoice?.carrier ?? "CJ대한통운",
-            trackingNumber: normalizedTrackingNumber,
-            receivedAt: order.domesticInvoice?.receivedAt ?? now,
-            uploadedToMarketAt: now,
-            source: order.domesticInvoice?.source ?? "manual",
+            source: order.domesticInvoice!.source ?? "manual",
             uploadMode: "manual",
         };
-
         saveSyncedInvoice(invoice);
         setAllOrders((current) => applyCachedState(current, [], [], [invoice]));
-        toast.success(`배송중 처리 완료: ${order.marketOrderId} 주문을 마켓에 전송하고 배송중으로 이동했습니다.`);
-    }, [enqueueApiCommand]);
+        toast.success(`배송중 처리 완료: ${order.marketOrderId} 주문을 송장으로 처리했습니다.`);
+    }, [enqueueApiCommand, getShippingProcessDefault]);
 
-    const handleDispatchDirectDelivery = useCallback(async (order: Order) => {
-        if (order.dataSource === "api") {
-            try {
-                await enqueueApiCommand(order, "DIRECT_DELIVERY", {
-                    dispatchAt: new Date().toISOString(),
-                }, `direct-delivery:v${order.version}`);
-                toast.info(`${order.marketOrderId} 직접전달 명령을 접수했습니다. 구매·국내송장 조건 충족 여부는 워커가 다시 확인합니다.`);
-            } catch (error) {
-                toast.error(error instanceof Error ? error.message : "직접전달 명령을 접수하지 못했습니다.");
-            }
-            return;
-        }
+    const handleSaveInvoice = useCallback((order: Order, carrier: string, trackingNumber: string) => {
+        const pendingManualPurchase = order.status === "READY_TO_SHIP"
+            && order.sourcingProgressStage === "EXTERNAL_PURCHASE";
 
-        setAllOrders((current) => current.map((item) => (
-            item.id === order.id
-                ? {
-                    ...item,
-                    status: item.status === "READY_TO_SHIP" && hasCompletedPurchase(item) && item.domesticInvoice?.trackingNumber?.trim() ? "SHIPPING" as OrderStatus : item.status,
-                    marketOrderStatus: "DELIVERING" as const,
-                    marketDeliveryMethod: "DIRECT_DELIVERY" as const,
-                }
-                : item
-        )));
-        if (order.status === "READY_TO_SHIP" && hasCompletedPurchase(order) && order.domesticInvoice?.trackingNumber?.trim()) {
-            toast.success(`${order.marketOrderId} 주문을 직접전달로 처리하고 실제 국내송장을 확인해 배송중으로 이동했습니다.`);
-            return;
-        }
-        toast.success(`${order.marketOrderId} 주문을 직접전달로 마켓 발송처리했습니다. 남은 구매·송장 업무에 따라 내부 작업 단계를 유지합니다.`);
-    }, [enqueueApiCommand]);
-
-    const handleSaveInvoice = useCallback(async (order: Order, carrier: string, trackingNumber: string) => {
-        if (order.marketDeliveryMethod === "DIRECT_DELIVERY" && !hasCompletedPurchase(order)) {
-            toast.info("직접전달 주문은 소싱라이프 또는 외부 구매 완료 후 국내송장을 저장할 수 있습니다.");
-            return;
-        }
-        if (!trackingNumber.trim()) {
-            toast.info("국내송장번호를 입력하세요.");
-            return;
-        }
-
-        if (order.dataSource === "api") {
-            if (!order.version) {
-                toast.error("주문 버전이 없어 송장을 저장할 수 없습니다. 새로고침해 주세요.");
+        if (pendingManualPurchase) {
+            if (order.dataSource === "api") {
+                toast.info("실주문 운송장 수정 API가 연결된 뒤 사용할 수 있습니다.");
                 return;
             }
 
-            const receivedAt = new Date().toISOString();
-            try {
-                const saved = await apiFetch<{
-                    carrierCode: string;
-                    trackingNumber: string;
-                    receivedAt: string;
-                    version: string;
-                }>(`/api/order-items/${order.id}/domestic-invoice`, {
-                    method: "PUT",
-                    headers: { "content-type": "application/json" },
-                    body: JSON.stringify({
-                        expectedVersion: order.version,
-                        carrierCode: toMarketCarrierCode(carrier),
-                        trackingNumber: trackingNumber.trim(),
-                        receivedAt,
-                    }),
-                });
-                setAllOrders((current) => current.map((item) => item.id === order.id ? {
-                    ...item,
-                    version: saved.version,
-                    domesticInvoice: {
-                        carrier: saved.carrierCode,
-                        trackingNumber: saved.trackingNumber,
-                        receivedAt: saved.receivedAt,
-                        source: "manual",
-                    },
-                } : item));
-                toast.success(`${order.marketOrderId} 국내송장을 원장에 저장했습니다. 마켓 전송은 별도 명령으로 실행하세요.`);
-            } catch (error) {
-                toast.error(error instanceof Error ? error.message : "국내송장을 저장하지 못했습니다.");
-            }
+            const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+            const invoice: SyncedInvoice = {
+                orderId: order.id,
+                carrier,
+                trackingNumber: trackingNumber.trim(),
+                receivedAt: order.domesticInvoice?.receivedAt ?? now,
+                source: "manual",
+                uploadMode: "manual",
+            };
+            saveSyncedInvoice(invoice);
+            setAllOrders((current) => current.map((item) => item.id === order.id ? {
+                ...item,
+                domesticInvoice: {
+                    carrier: invoice.carrier,
+                    trackingNumber: invoice.trackingNumber,
+                    receivedAt: invoice.receivedAt,
+                    source: "manual" as const,
+                    uploadMode: "manual" as const,
+                },
+            } : item));
+            toast.success(`${order.marketOrderId} 주문의 운송장을 수정했습니다. 배송중 처리는 별도로 진행해주세요.`);
+            return;
+        }
+
+        if (!hasStartedDomesticShipping(order)) {
+            toast.info("국내배송이 시작된 뒤에만 마켓 운송장을 수정할 수 있습니다.");
+            return;
+        }
+
+        if (order.dataSource === "api") {
+            toast.info("운송장 수정은 마켓 API가 아닌 2차 로그인 인증·판매자센터 크롤링 작업입니다. 크롤링 커넥터 연결 후 실행할 수 있습니다.");
             return;
         }
 
         const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+        const replacesProvisionalMarketMethod = hasCompletedMarketDispatch(order)
+            && (order.marketDeliveryMethod === "DIRECT_DELIVERY" || order.marketDeliveryMethod === "OVERSEAS_OTHER_DELIVERY");
         const invoice: SyncedInvoice = {
             orderId: order.id,
             carrier,
             trackingNumber: trackingNumber.trim(),
             receivedAt: order.domesticInvoice?.receivedAt ?? now,
+            uploadedToMarketAt: replacesProvisionalMarketMethod ? now : order.domesticInvoice?.uploadedToMarketAt,
             source: order.domesticInvoice?.source ?? "manual",
+            uploadMode: replacesProvisionalMarketMethod ? "crawler" : order.domesticInvoice?.uploadMode,
         };
 
         saveSyncedInvoice(invoice);
         setAllOrders((current) => applyCachedState(current, [], [], [invoice]));
-        if (shouldMoveDirectDeliveryToShipping(order, true)) {
-            toast.success(`${order.marketOrderId} 주문의 국내송장번호를 저장하고 배송중으로 이동했습니다.`);
-            return;
-        }
-        toast.success(`${order.marketOrderId} 주문의 국내송장번호를 저장했습니다. 배송중 처리 전까지 발송대기에 유지됩니다.`);
-        if (autoShipping && order.marketDeliveryMethod !== "DIRECT_DELIVERY") {
-            window.setTimeout(() => handleSendInvoice([order.id], "auto"), 0);
-        }
-    }, [autoShipping, handleSendInvoice]);
+        toast.success(replacesProvisionalMarketMethod
+            ? `${order.marketOrderId} 주문을 2차 로그인 인증·크롤링으로 실제 송장 방식에 갱신했습니다.`
+            : `${order.marketOrderId} 주문의 운송장을 수정했습니다.`);
+    }, []);
 
     const handleSaveRecipientInfo = useCallback((order: Order, recipient: Recipient) => {
         if (order.dataSource === "api") {
@@ -1407,6 +1500,82 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
         void orderPageQuery.refetch();
     }, [orderPageQuery]);
 
+    const handleRequestSourcingRefund = useCallback((order: Order, draft: SourcingRefundDraft): boolean => {
+        const availability = getSourcingRefundAvailability(order);
+        if (!availability.canRequest) {
+            toast.info(availability.reason ?? "이미 접수된 소싱환불이 있습니다.");
+            return false;
+        }
+        if (order.dataSource === "api") {
+            toast.info("실주문 환불은 TaoWorld 어댑터와 message/query 대사가 연결된 뒤 활성화됩니다.");
+            return false;
+        }
+
+        try {
+            const sourcingRefund = createSourcingRefundRequest(order, draft);
+            setAllOrders((current) => current.map((item) => item.id === order.id ? {
+                ...item,
+                sourcingRefund,
+            } : item));
+            setActiveSourcingOrder((current) => current?.id === order.id ? {
+                ...current,
+                sourcingRefund,
+            } : current);
+            toast.success("TaoWorld submit 데모 응답을 생성했습니다. 마켓 클레임 상태는 변경하지 않았습니다.");
+            return true;
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "소싱환불 요청을 접수하지 못했습니다.");
+            return false;
+        }
+    }, []);
+
+    const handleAdvanceSourcingRefund = useCallback((order: Order): void => {
+        if (!order.sourcingRefund || order.dataSource === "api") return;
+        const advanceOrderRefund = (item: Order): Order => item.sourcingRefund ? {
+            ...item,
+            sourcingRefund: advanceDemoSourcingRefund(item.sourcingRefund),
+        } : item;
+        setAllOrders((current) => current.map((item) => item.id === order.id ? advanceOrderRefund(item) : item));
+        setActiveSourcingOrder((current) => current?.id === order.id ? advanceOrderRefund(current) : current);
+        toast.success("message_type=9 수신 후 query한 데모 상태로 갱신했습니다.");
+    }, []);
+
+    const handleSubmitSourcingReturnLogistics = useCallback((order: Order, draft: SourcingReturnLogisticsDraft): boolean => {
+        if (!order.sourcingRefund || order.dataSource === "api") return false;
+        try {
+            const nextRefund = submitDemoReturnLogistics(order.sourcingRefund, draft);
+            setAllOrders((current) => current.map((item) => item.id === order.id ? {
+                ...item,
+                sourcingRefund: nextRefund,
+            } : item));
+            setActiveSourcingOrder((current) => current?.id === order.id ? {
+                ...current,
+                sourcingRefund: nextRefund,
+            } : current);
+            toast.success("TaoWorld submit/logistics 데모 응답을 저장했습니다.");
+            return true;
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "반품 송장을 등록하지 못했습니다.");
+            return false;
+        }
+    }, []);
+
+    const handleRestartSourcingAfterRefund = useCallback((order: Order): void => {
+        if (order.dataSource === "api") {
+            toast.info("실주문 재소싱은 환불 완료 확인과 기존 구매 연결 해제 API가 연결된 뒤 활성화됩니다.");
+            return;
+        }
+
+        try {
+            const restartedOrder = prepareOrderForResourcingAfterRefund(order);
+            setAllOrders((current) => current.map((item) => item.id === order.id ? restartedOrder : item));
+            setActiveSourcingOrder(restartedOrder);
+            toast.success("기존 환불 내역을 보존하고 새 소싱처 선택을 시작합니다.");
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "다시 소싱을 시작하지 못했습니다.");
+        }
+    }, []);
+
     const orderColumnActions = useMemo<OrderColumnActions>(() => ({
             onOpenSourcing: setActiveSourcingOrder,
             onLiveSourcingMappingSaved: handleLiveSourcingMappingSaved,
@@ -1419,12 +1588,13 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
             onCancelOrder: handleCancelOrder,
             onApproveCancelClaim: handleApproveCancelClaim,
             onRejectCancelClaim: handleRejectCancelClaim,
-            onDispatchDirectDelivery: handleDispatchDirectDelivery,
-            onSendInvoice: handleSendSingleInvoice,
+            onProcessShipping: handleProcessShipping,
+            getShippingProcessDefault,
             onSaveInvoice: handleSaveInvoice,
             onSaveRecipientInfo: handleSaveRecipientInfo,
+            onRestartSourcingAfterRefund: handleRestartSourcingAfterRefund,
         }),
-        [handleLiveSourcingMappingSaved, handleSaveSourcingMatch, handleCreateSourcingPaymentWait, handleCompleteSourcingPayment, handleCompleteManualPurchase, handleSourcingAndAcceptOrder, handleAcceptOrder, handleCancelOrder, handleApproveCancelClaim, handleRejectCancelClaim, handleDispatchDirectDelivery, handleSendSingleInvoice, handleSaveInvoice, handleSaveRecipientInfo],
+        [handleLiveSourcingMappingSaved, handleSaveSourcingMatch, handleCreateSourcingPaymentWait, handleCompleteSourcingPayment, handleCompleteManualPurchase, handleSourcingAndAcceptOrder, handleAcceptOrder, handleCancelOrder, handleApproveCancelClaim, handleRejectCancelClaim, handleProcessShipping, getShippingProcessDefault, handleSaveInvoice, handleSaveRecipientInfo, handleRestartSourcingAfterRefund],
     );
     const orderColumns = useMemo(
         () => createColumns(orderColumnActions),
@@ -1437,12 +1607,20 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
     const selectedOrderIds = selectedOrders.map((order) => order.id);
     const hasSelectedOrders = selectedOrderIds.length > 0;
 
-    const sendVisibleInvoices = () => {
-        handleSendInvoice(hasSelectedOrders ? selectedOrderIds : visibleBaseOrders.map((order) => order.id));
+    const shippingActionOrders = (hasSelectedOrders ? selectedOrders : visibleBaseOrders)
+        .filter((order) => getProcessActionVisibility(order, "list").showShippingProcess);
+    const hasProcessableShipping = shippingActionOrders.length > 0;
+    const openBulkShippingProcess = () => {
+        if (!hasProcessableShipping) {
+            toast.info("배송중 처리할 주문이 없습니다.");
+            return;
+        }
+        if (shippingActionOrders.every(hasCompletedMarketDispatch)) {
+            void Promise.all(shippingActionOrders.map((order) => handleProcessShipping(order)));
+            return;
+        }
+        setBulkShippingOrders(shippingActionOrders);
     };
-
-    const invoiceActionOrders = hasSelectedOrders ? selectedOrders : visibleBaseOrders;
-    const hasSendableInvoice = invoiceActionOrders.some((order) => order.domesticInvoice && !order.domesticInvoice.uploadedToMarketAt && order.marketDeliveryMethod !== "DIRECT_DELIVERY");
     const selectedCancelableNewOrders = selectedOrders.filter((order) => (
         order.status === "NEW" && order.marketDeliveryMethod !== "DIRECT_DELIVERY"
     ));
@@ -1473,11 +1651,11 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
     const commonAction = (
         <div className="flex min-w-0 items-center gap-3">
             {collectionStatus ? (
-                <span className="max-w-[320px] truncate text-xs text-slate-500" aria-live="polite" title={collectionStatus}>
+                <span className="max-w-[320px] truncate text-xs text-muted-foreground" aria-live="polite" title={collectionStatus}>
                     {collectionStatus}
                 </span>
             ) : null}
-            <Button variant="outline" className="h-10 border-slate-200 bg-white shadow-none hover:border-sky-200 hover:bg-sky-50" disabled={collectingOrders} onClick={handleCollectOrders}>
+            <Button variant="outline" className="h-10 border-border bg-card shadow-none hover:border-border hover:bg-muted" disabled={collectingOrders} onClick={handleCollectOrders}>
                 {collectingOrders ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}
                 {collectingOrders ? "주문수집 중" : "주문수집"}
             </Button>
@@ -1489,14 +1667,14 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
             <Button onClick={acceptVisibleOrders} disabled={!hasSelectedOrders}>
                 주문확인
             </Button>
-            <Button variant="outline" className="border-red-200 bg-white text-red-600 shadow-none hover:border-red-300 hover:bg-red-50 hover:text-red-700" onClick={() => setBulkCancelConfirmOpen(true)} disabled={!hasSelectedCancelableNewOrders}>
+            <Button variant="outline" className="border-border bg-card text-foreground shadow-none hover:border-border hover:bg-muted hover:text-foreground" onClick={() => setBulkCancelConfirmOpen(true)} disabled={!hasSelectedCancelableNewOrders}>
                 주문취소
             </Button>
         </>
     ) : activeView === "preparing" ? (
         null
     ) : activeView === "waiting" ? (
-        <Button className="h-10 bg-sky-600 shadow-sm hover:bg-sky-700" onClick={sendVisibleInvoices} disabled={!hasSendableInvoice}>
+        <Button className="h-10 bg-primary shadow-sm hover:bg-primary" onClick={openBulkShippingProcess} disabled={!hasProcessableShipping}>
             배송중 처리
         </Button>
     ) : (
@@ -1504,54 +1682,34 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
     );
 
     const stateFilterContent = activeView === "claims" ? (
-        <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 rounded-md border bg-white p-1">
-                <Button
-                    type="button"
-                    size="sm"
-                    variant={claimTypeFilter === "all" ? "default" : "ghost"}
-                    className="h-8 whitespace-nowrap px-3"
-                    onClick={() => setClaimTypeFilter("all")}
-                >
+        <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            value={claimTypeFilter}
+            onValueChange={(value) => value && setClaimTypeFilter(value as ClaimTypeFilter)}
+        >
+                <ToggleGroupItem value="all">
                     전체 {claimTypeCounts.all}
-                </Button>
-                <Button
-                    type="button"
-                    size="sm"
-                    variant={claimTypeFilter === "CANCEL" ? "default" : "ghost"}
-                    className="h-8 whitespace-nowrap px-3"
-                    onClick={() => setClaimTypeFilter("CANCEL")}
-                >
+                </ToggleGroupItem>
+                <ToggleGroupItem value="CANCEL">
                     취소 {claimTypeCounts.cancel}
-                </Button>
-                <Button
-                    type="button"
-                    size="sm"
-                    variant={claimTypeFilter === "RETURN" ? "default" : "ghost"}
-                    className="h-8 whitespace-nowrap px-3"
-                    onClick={() => setClaimTypeFilter("RETURN")}
-                >
+                </ToggleGroupItem>
+                <ToggleGroupItem value="RETURN">
                     반품 {claimTypeCounts.return}
-                </Button>
-                <Button
-                    type="button"
-                    size="sm"
-                    variant={claimTypeFilter === "EXCHANGE" ? "default" : "ghost"}
-                    className="h-8 whitespace-nowrap px-3"
-                    onClick={() => setClaimTypeFilter("EXCHANGE")}
-                >
+                </ToggleGroupItem>
+                <ToggleGroupItem value="EXCHANGE">
                     교환 {claimTypeCounts.exchange}
-                </Button>
-            </div>
-        </div>
+                </ToggleGroupItem>
+        </ToggleGroup>
     ) : (
         null
     );
 
     const optionContent = activeView === "preparing" || activeView === "waiting" ? (
-        <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 shadow-sm">
+        <div className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 shadow-sm">
             <Switch id="auto-shipping" checked={autoShipping} onCheckedChange={handleAutoShippingChange} />
-            <Label htmlFor="auto-shipping" className="whitespace-nowrap text-xs text-slate-700">
+            <Label htmlFor="auto-shipping" className="whitespace-nowrap text-xs text-foreground">
                 자동 배송중 처리 {autoShipping ? "ON" : "OFF"}
             </Label>
         </div>
@@ -1560,26 +1718,8 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
     );
     const stageFilterContent = (
         <div className="flex flex-wrap items-center gap-2">
-            <Select value={sellerFilter} onValueChange={setSellerFilter}>
-                <SelectTrigger className="h-10 w-[220px] border-slate-200 bg-white shadow-sm">
-                    <SelectValue placeholder="판매처 전체" />
-                </SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="all">판매처 전체</SelectItem>
-                    {sellerOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                            <span className="flex min-w-0 items-center gap-2">
-                                <span className={cn("inline-flex size-5 shrink-0 items-center justify-center rounded-sm border text-[10px] font-black leading-none", MARKET_BADGE_CLASSES[option.marketType])}>
-                                    {MARKET_ABBREVIATIONS[option.marketType]}
-                                </span>
-                                <span className="truncate">{option.storeName}</span>
-                            </span>
-                        </SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
             <Select value={activeStatusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
-                <SelectTrigger className="h-10 w-[150px] border-slate-200 bg-white shadow-sm">
+                <SelectTrigger className="h-8 w-[150px] border-border bg-card shadow-sm">
                     <SelectValue placeholder="상태 전체" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1596,72 +1736,69 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
     const tableColumns = orderColumns;
 
     return (
-        <div className="min-h-svh bg-white">
-            <div className="border-b border-slate-100 px-6 py-5 xl:px-8">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="max-w-4xl">
-                        <h1 className="text-[24px] font-extrabold tracking-tight text-slate-950">{title}</h1>
-                    </div>
-                </div>
-            </div>
+        <div className="min-h-full p-4 sm:p-6 lg:p-8">
+            <PageHeader
+                title={title}
+                eyebrow="COMMERCE LIFE · WORK QUEUE"
+                description="마켓 주문을 수집하고 소싱·결제·배송 상태를 하나의 운영 작업 큐에서 처리합니다."
+            />
 
-            <div className="space-y-3 px-6 py-4 xl:px-8">
+            <Card className="mt-6 gap-0 overflow-hidden py-0">
+            <CardHeader className="space-y-3 border-b border-border p-4 sm:p-5">
                 <OrderSearch
                     baseData={visibleBaseOrders}
                     onSearch={setOrders}
+                    linkedStores={mockLinkedStores.map((store) => ({
+                        key: `${store.marketType}:${store.storeName}`,
+                        marketType: store.marketType,
+                        storeName: store.storeName,
+                    }))}
+                    middleContent={stageFilterContent}
                     commonAction={commonAction}
                 />
 
                 {!isClaimView && (
-                    <div className="flex flex-wrap items-center gap-6 border-b border-slate-100 pt-2">
+                    <div className="flex flex-wrap items-center gap-6 border-b border-border pt-2">
                         {collectionTabs.map((tab) => {
                             const isActive = activeView === tab.view;
                             return (
-                                <Link
-                                    key={tab.view}
-                                    href={tab.href}
-                                    className={cn(
-                                        "flex h-10 items-center gap-2 border-b-2 border-transparent text-sm font-bold text-slate-500 transition hover:text-slate-900",
-                                        isActive && "border-emerald-500 text-emerald-600",
-                                    )}
-                                >
+                                <Button key={tab.view} asChild size="sm" variant={isActive ? "secondary" : "ghost"}>
+                                <Link href={tab.href}>
                                     <span>{viewLabels[tab.view]}</span>
-                                    <span className={cn(
-                                        "rounded-md bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500",
-                                        isActive && "bg-emerald-50 text-emerald-600",
-                                    )}>
+                                    <Badge variant="outline">
                                         {statusCounts[tab.view]}
-                                    </span>
+                                    </Badge>
                                 </Link>
+                                </Button>
                             );
                         })}
                     </div>
                 )}
 
-                {(actionContent || stateFilterContent || optionContent || stageFilterContent) && (
+                {(actionContent || stateFilterContent || optionContent) && (
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-2">
                             {actionContent}
                         </div>
                         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                            {stageFilterContent}
                             {stateFilterContent}
                             {optionContent}
                         </div>
                     </div>
                 )}
-            </div>
+            </CardHeader>
 
             {isClaimView && (
-                <div className="mx-6 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900 xl:mx-8">
-                    취소/반품/교환은 구매자가 요청했거나 마켓에서 수집된 클레임만 확인합니다. 판매자 직접 주문취소 건은 이 목록에 노출하지 않습니다.
-                </div>
+                <Alert className="mx-4 mt-4 w-auto sm:mx-5">
+                    <AlertDescription>취소/반품/교환은 구매자가 요청했거나 마켓에서 수집된 클레임만 확인합니다. 판매자 직접 주문취소 건은 이 목록에 노출하지 않습니다.</AlertDescription>
+                </Alert>
             )}
 
-            <div className="px-6 pb-6 xl:px-8">
+            <CardContent className="p-4 sm:p-5">
                 <OrderTable
                     data={orders}
                     columns={tableColumns}
+                    highlightedOrderIds={transitionedOrderIds}
                     selectable={!isClaimView}
                     onRowSelectionChange={setRowSelection}
                     onSaveRecipientInfo={handleSaveRecipientInfo}
@@ -1669,18 +1806,8 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
                         <OrderProcessActions order={order} actions={orderColumnActions} placement="detail" />
                     )}
                 />
-                {hasLiveOrders && orderPageQuery.hasNextPage ? (
-                    <div className="flex justify-center border-t border-slate-100 pt-4">
-                        <Button
-                            variant="outline"
-                            disabled={orderPageQuery.isFetchingNextPage}
-                            onClick={() => orderPageQuery.fetchNextPage()}
-                        >
-                            {orderPageQuery.isFetchingNextPage ? "불러오는 중..." : "다음 주문 100건 불러오기"}
-                        </Button>
-                    </div>
-                ) : null}
-            </div>
+            </CardContent>
+            </Card>
 
             <SellerCancelDialog
                 open={bulkCancelConfirmOpen}
@@ -1689,6 +1816,18 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
                 selectionCount={selectedCancelableNewOrders.length}
                 hasLiveOrders={selectedCancelableNewOrders.some((order) => order.dataSource === "api")}
                 onSubmit={cancelSelectedNewOrders}
+            />
+            <ShippingProcessDialog
+                open={bulkShippingOrders.length > 0}
+                orders={bulkShippingOrders}
+                onOpenChange={(open) => {
+                    if (!open) setBulkShippingOrders([]);
+                }}
+                onConfirm={async (method, overseasTrackingNumber) => {
+                    await Promise.all(bulkShippingOrders.map((order) => handleProcessShipping(order, method, overseasTrackingNumber)));
+                    setBulkShippingOrders([]);
+                }}
+                resolveMethod={getShippingProcessDefault}
             />
             <SellerCancelDialog
                 open={sourcingCancelOrder !== null}
@@ -1717,6 +1856,9 @@ export function OrdersPageClient({ activeView }: OrdersPageClientProps) {
                 }}
                 onCreatePaymentWait={handleCreateSourcingPaymentWait}
                 onCompletePayment={handleCompleteSourcingPayment}
+                onRequestSourcingRefund={handleRequestSourcingRefund}
+                onAdvanceSourcingRefund={handleAdvanceSourcingRefund}
+                onSubmitSourcingReturnLogistics={handleSubmitSourcingReturnLogistics}
             />
         </div>
     );

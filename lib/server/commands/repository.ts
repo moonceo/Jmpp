@@ -15,6 +15,7 @@ interface OrderItemContextRow extends QueryResultRow {
     account_auth_status: string;
     account_is_active: boolean;
     capabilities: unknown;
+    settings: unknown;
 }
 
 interface OutboundCommandRow extends QueryResultRow {
@@ -54,6 +55,7 @@ export interface LockedOrderItemCommandContext {
     accountAuthStatus: string;
     accountIsActive: boolean;
     capabilities: unknown;
+    settings: unknown;
 }
 
 export interface StoredOutboundCommand {
@@ -141,7 +143,8 @@ export async function lockOrderItemCommandContext(
                 ma.market_code,
                 ma.auth_status AS account_auth_status,
                 ma.is_active AS account_is_active,
-                ma.capabilities
+                ma.capabilities,
+                ma.settings
            FROM order_items oi
            JOIN market_accounts ma
              ON ma.tenant_id = oi.tenant_id
@@ -165,6 +168,7 @@ export async function lockOrderItemCommandContext(
         accountAuthStatus: row.account_auth_status,
         accountIsActive: row.account_is_active,
         capabilities: row.capabilities,
+        settings: row.settings,
     };
 }
 

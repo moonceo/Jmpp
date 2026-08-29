@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
     Dialog,
     DialogContent,
@@ -13,7 +14,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field as ShadcnField, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { withBrowserSecurity } from "@/lib/client/http";
@@ -82,9 +83,11 @@ function optionalPositiveInteger(value: string): number | null {
 export function LiveSourcingMappingDialog({
     order,
     onSaved,
+    buttonLabel = "매핑 관리",
 }: {
     order: Order;
     onSaved: (mapping: SavedLiveSourcingMapping) => void;
+    buttonLabel?: string;
 }) {
     const [open, setOpen] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -228,8 +231,8 @@ export function LiveSourcingMappingDialog({
 
     return (
         <>
-            <Button size="sm" variant="outline" className="h-[29px] w-full px-1.5 text-[11px]" onClick={() => setOpen(true)}>
-                매핑 관리
+            <Button size="sm" variant="outline" className="h-[29px] w-full px-1.5 text-xs" onClick={() => setOpen(true)}>
+                {buttonLabel}
             </Button>
             <Dialog open={open} onOpenChange={setOpen}>
                 <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto p-0">
@@ -239,17 +242,17 @@ export function LiveSourcingMappingDialog({
                     </DialogHeader>
                     <form onSubmit={submit}>
                         <div className="space-y-5 px-5 py-4">
-                            <div className="flex gap-3 border-l-2 border-amber-500 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900">
+                            <Alert>
                                 <ShieldAlert className="mt-0.5 size-4 shrink-0" />
-                                <span>수동 입력은 검증 자료가 아닌 초안입니다. 소싱라이프 서버가 가격·재고·SKU·금지품목을 다시 확인하기 전에는 구매신청과 결제를 진행할 수 없습니다.</span>
-                            </div>
+                                <AlertDescription>수동 입력은 검증 자료가 아닌 초안입니다. 소싱라이프 서버가 가격·재고·SKU·금지품목을 다시 확인하기 전에는 구매신청과 결제를 진행할 수 없습니다.</AlertDescription>
+                            </Alert>
 
-                            {loading ? <p className="text-xs text-slate-500">현재 매핑 확인 중...</p> : null}
+                            {loading ? <p className="text-xs text-muted-foreground">현재 매핑 확인 중...</p> : null}
                             {current ? (
-                                <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-700">
+                                <div className="rounded-md border border-border bg-muted px-3 py-2 text-xs leading-5 text-foreground">
                                     <div className="flex items-center justify-between gap-3">
                                         <strong>현재 revision {current.mappingRevision}</strong>
-                                        <span className={verified ? "text-emerald-700" : "text-amber-700"}>
+                                        <span className={verified ? "text-foreground" : "text-foreground"}>
                                             {verified ? "서버 검증됨" : "서버 검증 대기"}
                                         </span>
                                     </div>
@@ -331,9 +334,9 @@ export function LiveSourcingMappingDialog({
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
     return (
-        <div className="space-y-1.5">
-            <Label className="text-xs font-bold text-slate-700">{label}</Label>
+        <ShadcnField className="gap-1.5">
+            <FieldLabel>{label}</FieldLabel>
             {children}
-        </div>
+        </ShadcnField>
     );
 }

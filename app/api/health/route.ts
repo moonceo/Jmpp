@@ -9,7 +9,7 @@ export async function GET(request: Request): Promise<Response> {
     return jsonResponse({
         status: "ok",
         probe: "liveness",
-        service: "jumunpangpang",
+        service: "commerce-life",
         timestamp: new Date().toISOString(),
     }, correlationId);
 }

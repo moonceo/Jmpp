@@ -17,7 +17,10 @@ function result(rows: unknown[] = []) {
 }
 
 function scriptedClient(...rowSets: unknown[][]) {
-    const query = vi.fn(async () => result(rowSets.shift() ?? []));
+    const query = vi.fn(async (...args: unknown[]) => {
+        void args;
+        return result(rowSets.shift() ?? []);
+    });
     return {
         client: { query } as unknown as TransactionClient,
         query,
@@ -61,8 +64,21 @@ describe("domestic invoice storage", () => {
         expect(query).toHaveBeenCalledOnce();
     });
 
-    it.each(["NEW", "SHIPPING", "DELIVERED", "CANCELED", "ON_HOLD"])(
-        "rejects the non-pre-submit %s state",
+    it("rejects edits once domestic-invoice processing has started", async () => {
+        const { client, query } = scriptedClient(
+            [currentItem()],
+            [{ started: true }],
+        );
+
+        await expect(saveDomesticInvoice(client, input())).rejects.toMatchObject({
+            status: 409,
+            code: "DELIVERY_INVOICE_ALREADY_STARTED",
+        });
+        expect(query).toHaveBeenCalledTimes(2);
+    });
+
+    it.each(["NEW", "DELIVERED", "CANCELED", "ON_HOLD"])(
+        "rejects the non-editable %s state",
         async (internalWorkStatus) => {
             const { client, query } = scriptedClient([
                 currentItem({ internal_work_status: internalWorkStatus }),
@@ -76,11 +92,12 @@ describe("domestic invoice storage", () => {
         },
     );
 
-    it.each(["PREPARING", "READY_TO_SHIP"])(
-        "stores an invoice in the pre-submit %s state",
+    it.each(["PREPARING", "READY_TO_SHIP", "SHIPPING"])(
+        "stores an invoice before marketplace submission in the %s state",
         async (internalWorkStatus) => {
             const { client, query } = scriptedClient(
                 [currentItem({ internal_work_status: internalWorkStatus })],
+                [{ started: false }],
                 [{ version: "4" }],
                 [],
             );
@@ -91,7 +108,8 @@ describe("domestic invoice storage", () => {
                 trackingNumber: "1234567890",
                 version: "4",
             });
-            expect(query).toHaveBeenCalledTimes(3);
+            expect(query).toHaveBeenCalledTimes(4);
+            expect(query.mock.calls[1]?.[0]).toContain("payload ->> 'requestedMethod' = 'DELIVERY'");
         },
     );
 

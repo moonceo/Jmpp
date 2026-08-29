@@ -96,6 +96,7 @@ export interface NaverProductOrderData {
     quantity?: number;
     unitPrice?: number;
     totalPaymentAmount?: number;
+    deliveryFeeAmount?: number;
     productOrderStatus?: string;
     claimType?: string;
     claimStatus?: string;

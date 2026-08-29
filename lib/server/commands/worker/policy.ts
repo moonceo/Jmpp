@@ -16,6 +16,7 @@ import {
     invoiceSubmitPayloadSchema,
     orderConfirmPayloadSchema,
     sellerCancelPayloadSchema,
+    shippingProcessPayloadSchema,
 } from "@/lib/server/commands/schemas";
 import type {
     NaverCommandFinalization,
@@ -35,6 +36,15 @@ export type ParsedNaverCommandPayload =
     }
     | { type: "DIRECT_DELIVERY"; payload: { dispatchAt: string } }
     | {
+        type: "SHIPPING_PROCESS";
+        payload: {
+            requestedMethod: "DELIVERY" | "DIRECT_DELIVERY" | "OVERSEAS_OTHER_DELIVERY";
+            dispatchAt: string;
+            carrierCode?: string;
+            trackingNumber?: string;
+        };
+    }
+    | {
         type: "SELLER_CANCEL";
         payload: {
             reasonCode: NaverSellerCancelReason;
@@ -44,7 +54,7 @@ export type ParsedNaverCommandPayload =
     };
 
 export type ProviderTargetInspection =
-    | { state: "APPLIED"; providerStatus: string }
+    | { state: "APPLIED"; providerStatus: string; deliveryMethod?: "DELIVERY" | "DIRECT_DELIVERY" | "OVERSEAS_OTHER_DELIVERY" }
     | { state: "NOT_APPLIED"; providerStatus: string }
     | { state: "CONFLICT"; providerStatus: string; code: string }
     | { state: "INDETERMINATE"; providerStatus: string; code: string };
@@ -58,7 +68,7 @@ export type NaverSuccessPatch =
         ok: true;
         confirmedAt: string | null;
         marketInvoiceSubmittedAt: string | null;
-        marketDeliveryMethod: "DELIVERY" | "DIRECT_DELIVERY" | null;
+        marketDeliveryMethod: "DELIVERY" | "DIRECT_DELIVERY" | "OVERSEAS_OTHER_DELIVERY" | null;
         marketFulfillmentStatus: string | null;
         internalWorkStatus: NaverCommandOrderItem["internalWorkStatus"];
     }
@@ -143,6 +153,11 @@ export function buildNaverAttemptIdentity(input: {
         }
         : input.type === "DIRECT_DELIVERY"
             ? { dispatchAt: input.payload.dispatchAt }
+            : input.type === "SHIPPING_PROCESS"
+                ? {
+                    requestedMethod: input.payload.requestedMethod,
+                    dispatchAt: input.payload.dispatchAt,
+                }
             : input.type === "SELLER_CANCEL"
                 ? {
                     reasonCode: input.payload.reasonCode,
@@ -177,6 +192,10 @@ export function parseNaverCommandPayload(
     }
     if (type === "DIRECT_DELIVERY") {
         const parsed = directDeliveryPayloadSchema.safeParse(payload);
+        return parsed.success ? { type, payload: parsed.data } : null;
+    }
+    if (type === "SHIPPING_PROCESS") {
+        const parsed = shippingProcessPayloadSchema.safeParse(payload);
         return parsed.success ? { type, payload: parsed.data } : null;
     }
     if (type === "SELLER_CANCEL") {
@@ -338,6 +357,34 @@ export function inspectNaverProviderTarget(
         return { state: "NOT_APPLIED", providerStatus: fields.productOrderStatus };
     }
 
+    if (command.type === "SHIPPING_PROCESS") {
+        if (command.payload.requestedMethod === "OVERSEAS_OTHER_DELIVERY") {
+            const overseasMatches = (fields.deliveryMethod === "DELIVERY" || fields.deliveryMethod === "PARCEL")
+                && fields.carrierCode === command.payload.carrierCode?.toUpperCase()
+                && fields.trackingNumber === command.payload.trackingNumber;
+            if (overseasMatches) {
+                return { state: "APPLIED", providerStatus: fields.productOrderStatus, deliveryMethod: "OVERSEAS_OTHER_DELIVERY" };
+            }
+            return {
+                state: fields.carrierCode === null || fields.trackingNumber === null ? "INDETERMINATE" : "CONFLICT",
+                providerStatus: fields.productOrderStatus,
+                code: fields.carrierCode === null || fields.trackingNumber === null
+                    ? "PROVIDER_OVERSEAS_REFERENCE_MISSING"
+                    : "PROVIDER_OVERSEAS_REFERENCE_CONFLICT",
+            };
+        }
+        const deliveryMethod = fields.deliveryMethod === "DIRECT_DELIVERY" || fields.deliveryMethod === "DIRECT"
+            ? "DIRECT_DELIVERY" as const
+            : fields.deliveryMethod === null
+                ? undefined
+                : "DELIVERY" as const;
+        return {
+            state: "APPLIED",
+            providerStatus: fields.productOrderStatus,
+            ...(deliveryMethod ? { deliveryMethod } : {}),
+        };
+    }
+
     if (command.type === "DIRECT_DELIVERY") {
         if (fields.deliveryMethod === "DIRECT_DELIVERY" || fields.deliveryMethod === "DIRECT") {
             return { state: "APPLIED", providerStatus: fields.productOrderStatus };
@@ -380,6 +427,13 @@ export function hasLocalDomesticInvoice(item: NaverCommandOrderItem): boolean {
     return Boolean(item.domesticCarrierCode?.trim() && item.domesticTrackingNumber?.trim());
 }
 
+export function hasStartedLocalDomesticShipping(item: NaverCommandOrderItem): boolean {
+    const stage = normalizedText(item.attributes.sourcingProgressStage ?? item.attributes.sourcing_progress_stage);
+    return stage === "DOMESTIC_SHIPPING"
+        || stage === "DELIVERED"
+        || typeof item.attributes.domesticShippingStartedAt === "string";
+}
+
 function capabilityIsApi(
     capabilities: Record<string, unknown>,
     action: string,
@@ -406,7 +460,10 @@ export function validateNaverCommandPreconditions(input: {
     if (!input.accountActive || input.accountAuthStatus !== "CONNECTED") {
         return { ok: false, code: "MARKET_ACCOUNT_NOT_CONNECTED", message: "The market account is unavailable." };
     }
-    if (!capabilityIsApi(input.accountCapabilities, command.type)) {
+    const capabilityAction = command.type === "SHIPPING_PROCESS"
+        ? command.payload.requestedMethod === "DIRECT_DELIVERY" ? "DIRECT_DELIVERY" : "INVOICE_SUBMIT"
+        : command.type;
+    if (!capabilityIsApi(input.accountCapabilities, capabilityAction)) {
         return { ok: false, code: "MARKET_CAPABILITY_NOT_API", message: "The write capability is not enabled." };
     }
     if (input.expectedVersion === null || item.version !== input.expectedVersion) {
@@ -464,32 +521,35 @@ export function validateNaverCommandPreconditions(input: {
     if (!item.confirmedAt && !providerIsConfirmed(fields)) {
         return { ok: false, code: "ORDER_NOT_CONFIRMED", message: "The order must be confirmed before dispatch." };
     }
-    if (!["PREPARING", "READY_TO_SHIP"].includes(item.internalWorkStatus)) {
+    if (!["PREPARING", "READY_TO_SHIP", "SHIPPING"].includes(item.internalWorkStatus)) {
         return { ok: false, code: "DISPATCH_STATE_CONFLICT", message: "The local order is not dispatchable." };
     }
 
     const purchaseCompleted = hasCompletedLocalPurchase(item);
     const hasInvoice = hasLocalDomesticInvoice(item);
-    if (command.type === "INVOICE_SUBMIT") {
-        if (!purchaseCompleted || !hasInvoice) {
+
+    if (
+        (command.type === "INVOICE_SUBMIT" || command.type === "DIRECT_DELIVERY" || command.type === "SHIPPING_PROCESS")
+        && !purchaseCompleted
+    ) {
+        return { ok: false, code: "PURCHASE_REQUIRED", message: "A completed sourcing or external purchase is required before marketplace dispatch." };
+    }
+
+    if (command.type === "INVOICE_SUBMIT" || (command.type === "SHIPPING_PROCESS" && command.payload.requestedMethod === "DELIVERY")) {
+        if (!hasInvoice) {
             return { ok: false, code: "PURCHASE_AND_INVOICE_REQUIRED", message: "Purchase and domestic invoice are required." };
         }
+        if (!hasStartedLocalDomesticShipping(item)) {
+            return { ok: false, code: "DOMESTIC_SHIPPING_NOT_STARTED", message: "The domestic invoice cannot be sent before domestic shipping starts." };
+        }
         if (
-            item.domesticCarrierCode !== command.payload.carrierCode
-            || item.domesticTrackingNumber !== command.payload.trackingNumber
+            command.type === "INVOICE_SUBMIT"
+            && (item.domesticCarrierCode !== command.payload.carrierCode
+                || item.domesticTrackingNumber !== command.payload.trackingNumber)
         ) {
             return { ok: false, code: "DOMESTIC_INVOICE_MISMATCH", message: "The command invoice differs from the stored invoice." };
         }
     }
-    if (command.type === "DIRECT_DELIVERY") {
-        if (!purchaseCompleted && hasInvoice) {
-            return { ok: false, code: "DIRECT_DELIVERY_INVARIANT_CONFLICT", message: "An invoice cannot precede a completed purchase." };
-        }
-        if (item.internalWorkStatus === "READY_TO_SHIP" && (!purchaseCompleted || !hasInvoice)) {
-            return { ok: false, code: "READY_TO_SHIP_INVARIANT_CONFLICT", message: "READY_TO_SHIP requires purchase and invoice." };
-        }
-    }
-
     return { ok: true };
 }
 
@@ -757,7 +817,7 @@ function orderItemState(input: {
     now: string;
     commandId: string;
     submitted: boolean;
-    deliveryMethod: "DELIVERY" | "DIRECT_DELIVERY" | null;
+    deliveryMethod: "DELIVERY" | "DIRECT_DELIVERY" | "OVERSEAS_OTHER_DELIVERY" | null;
     internalWorkStatus: NaverCommandOrderItem["internalWorkStatus"];
 }): OrderItemState {
     return {
@@ -787,6 +847,8 @@ export function deriveNaverSuccessPatch(input: {
     item: NaverCommandOrderItem;
     commandId: string;
     now: string;
+    payload?: Record<string, unknown>;
+    providerDeliveryMethod?: "DELIVERY" | "DIRECT_DELIVERY" | "OVERSEAS_OTHER_DELIVERY";
 }): NaverSuccessPatch {
     const { item, type } = input;
     if (type === "ORDER_CONFIRM") {
@@ -818,12 +880,18 @@ export function deriveNaverSuccessPatch(input: {
         };
     }
 
+    const requestedShippingMethod = input.payload?.requestedMethod === "DIRECT_DELIVERY"
+        ? "DIRECT_DELIVERY" as const
+        : input.payload?.requestedMethod === "OVERSEAS_OTHER_DELIVERY"
+            ? "OVERSEAS_OTHER_DELIVERY" as const
+            : "DELIVERY" as const;
     const deliveryMethod = type === "INVOICE_SUBMIT"
         ? "DELIVERY" as const
-        : "DIRECT_DELIVERY" as const;
+        : type === "DIRECT_DELIVERY"
+            ? "DIRECT_DELIVERY" as const
+            : input.providerDeliveryMethod ?? requestedShippingMethod;
     const canAdvance = hasCompletedLocalPurchase(item)
-        && hasLocalDomesticInvoice(item)
-        && ["PREPARING", "READY_TO_SHIP"].includes(item.internalWorkStatus);
+        && ["PREPARING", "READY_TO_SHIP", "SHIPPING"].includes(item.internalWorkStatus);
     const nextInternalStatus = canAdvance ? "SHIPPING" : item.internalWorkStatus;
     const current = orderItemState({
         item,

@@ -3,16 +3,16 @@
 import * as React from "react";
 import { Suspense } from "react";
 import {
-    ChevronRight,
-    ClipboardList,
+    BellRing,
     DatabaseBackup,
-    Globe2,
-    Heart,
+    Inbox,
+    LayoutDashboard,
     LogOut,
+    MessageSquareText,
     ReceiptText,
-    Search,
-    ShoppingBag,
-    Truck,
+    RotateCcw,
+    Route,
+    Store,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -20,6 +20,9 @@ import {
     Sidebar,
     SidebarContent,
     SidebarFooter,
+    SidebarGroup,
+    SidebarGroupContent,
+    SidebarGroupLabel,
     SidebarHeader,
     SidebarMenu,
     SidebarMenuButton,
@@ -27,28 +30,79 @@ import {
     useSidebar,
 } from "@/components/ui/sidebar";
 import { withBrowserSecurity } from "@/lib/client/http";
-import { cn } from "@/lib/utils";
 
-const orderSubMenus = [
-    { title: "주문수집", href: "/orders" },
-    { title: "취소/반품/교환", href: "/orders?view=claims" },
-    { title: "문의관리", href: "/inquiries" },
-    { title: "마켓연동", href: "/me/markets" },
+interface NavigationItem {
+    title: string;
+    description: string;
+    href: string;
+    icon: React.ComponentType<{ className?: string }>;
+    isActive: (pathname: string, view: string | null) => boolean;
+}
+
+const overviewItems: NavigationItem[] = [
+    {
+        title: "대시보드",
+        description: "통계와 남은 작업",
+        href: "/dashboard",
+        icon: LayoutDashboard,
+        isActive: (pathname) => pathname === "/dashboard" || pathname === "/",
+    },
+    {
+        title: "주문현황",
+        description: "전체 흐름과 처리 이슈",
+        href: "/journey",
+        icon: Route,
+        isActive: (pathname) => pathname === "/journey",
+    },
 ];
 
-function isOrderArea(pathname: string) {
-    return pathname === "/orders" || pathname === "/inquiries" || pathname === "/me/markets";
-}
+const operationItems: NavigationItem[] = [
+    {
+        title: "주문수집",
+        description: "판매처 주문 통합 처리",
+        href: "/orders",
+        icon: Inbox,
+        isActive: (pathname, view) => pathname === "/orders" && view !== "claims",
+    },
+    {
+        title: "취소·반품·교환",
+        description: "구매자 클레임 처리",
+        href: "/orders?view=claims",
+        icon: RotateCcw,
+        isActive: (pathname, view) => pathname === "/orders" && view === "claims",
+    },
+    {
+        title: "문의관리",
+        description: "판매처 문의 통합 응대",
+        href: "/inquiries",
+        icon: MessageSquareText,
+        isActive: (pathname) => pathname === "/inquiries",
+    },
+];
 
-function isSubMenuActive(href: string, pathname: string, view: string | null) {
-    const [path, query] = href.split("?");
-    if (pathname !== path) return false;
-
-    const targetView = query ? new URLSearchParams(query).get("view") : null;
-    if (targetView) return view === targetView;
-
-    return path === "/orders" ? view !== "claims" : true;
-}
+const settingsItems: NavigationItem[] = [
+    {
+        title: "마켓연동",
+        description: "판매처 계정과 수집 설정",
+        href: "/me/markets",
+        icon: Store,
+        isActive: (pathname) => pathname === "/me/markets",
+    },
+    {
+        title: "알림 설정",
+        description: "고객·판매자 알림 정책",
+        href: "/me/notifications",
+        icon: BellRing,
+        isActive: (pathname) => pathname === "/me/notifications",
+    },
+    {
+        title: "장부 다운로드",
+        description: "매출·비용·실제 마진",
+        href: "/ledger",
+        icon: ReceiptText,
+        isActive: (pathname) => pathname === "/ledger" || pathname === "/me/ledger",
+    },
+];
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
     return (
@@ -61,12 +115,10 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 function AppSidebarContent({ ...props }: React.ComponentProps<typeof Sidebar>) {
     const pathname = usePathname();
     const searchParams = useSearchParams();
-    const { isMobile, setOpen, setOpenMobile } = useSidebar();
+    const { isMobile, setOpenMobile } = useSidebar();
     const view = searchParams.get("view");
-    const orderOpen = isOrderArea(pathname);
-    const closeSidebar = () => {
+    const closeMobileSidebar = () => {
         if (isMobile) setOpenMobile(false);
-        else setOpen(false);
     };
     const resetDemoData = () => {
         window.localStorage.removeItem("jumunpangpang.syncedInvoices");
@@ -83,116 +135,116 @@ function AppSidebarContent({ ...props }: React.ComponentProps<typeof Sidebar>) {
     };
 
     return (
-        <Sidebar variant="sidebar" collapsible="icon" className="border-r border-slate-200 bg-white" {...props}>
-            <SidebarHeader className="border-b border-slate-100 px-3 py-3">
-                <div className="flex h-9 items-center justify-between">
-                    <Link href="/orders" onClick={closeSidebar} className="text-[22px] font-extrabold tracking-tight text-black">
-                        소싱라이프
-                    </Link>
-                    <button
-                        type="button"
-                        className="h-8 rounded-md border border-slate-300 bg-white px-3 text-sm font-bold text-slate-900 shadow-sm hover:bg-slate-50"
-                        onClick={closeSidebar}
-                    >
-                        닫기
-                    </button>
-                </div>
-                <div className="mt-3 grid grid-cols-2 rounded-lg border border-slate-200 bg-slate-50 p-1">
-                    <button type="button" className="h-9 rounded-md bg-[#ff321c] text-[15px] font-extrabold text-white shadow-sm">
-                        타오바오
-                    </button>
-                    <button type="button" className="h-9 rounded-md text-[15px] font-extrabold text-slate-600 hover:bg-white">
-                        1688
-                    </button>
-                </div>
-            </SidebarHeader>
-
-            <SidebarContent className="px-1.5 py-3">
-                <SidebarMenu className="gap-1">
+        <Sidebar variant="sidebar" collapsible="icon" className="border-r border-sidebar-border" {...props}>
+            <SidebarHeader className="border-b border-sidebar-border p-2">
+                <SidebarMenu>
                     <SidebarMenuItem>
-                        <SidebarMenuButton asChild tooltip="아이템 검색" className="h-12 rounded-md bg-[#ff321c] px-4 text-[16px] font-extrabold text-white hover:bg-[#ff321c]">
-                            <button type="button" disabled className="flex w-full cursor-default items-center gap-3">
-                                <Search className="size-5 shrink-0 text-white" />
-                                <span>아이템 검색</span>
-                            </button>
-                        </SidebarMenuButton>
-                    </SidebarMenuItem>
-
-                    <SidebarMenuItem>
-                        <SidebarMenuButton
-                            asChild
-                            tooltip="주문관리"
-                            isActive={orderOpen}
-                            className="h-12 rounded-md px-4 text-[16px] font-extrabold text-slate-900 transition data-[active=true]:bg-red-50 data-[active=true]:text-[#ff321c] hover:bg-slate-50"
-                        >
-                            <Link href="/orders" onClick={closeSidebar} className="flex items-center gap-3">
-                                <ClipboardList className={cn("size-5 shrink-0", orderOpen ? "text-[#ff321c]" : "text-slate-400")} />
-                                <span>주문관리</span>
-                                <ChevronRight className={cn("ml-auto size-4 transition", orderOpen && "rotate-90 text-[#ff321c]")} />
+                        <SidebarMenuButton asChild size="lg" className="h-14 rounded-md px-2 hover:bg-sidebar-accent">
+                            <Link href="/dashboard" onClick={closeMobileSidebar}>
+                                <span className="grid size-9 shrink-0 place-items-center rounded-md bg-sidebar-primary text-xs font-black tracking-tight text-sidebar-primary-foreground">
+                                    CL
+                                </span>
+                                <span className="grid min-w-0 flex-1 text-left leading-tight">
+                                    <span className="truncate text-sm font-black tracking-tight">커머스라이프</span>
+                                    <span className="truncate text-xs text-sidebar-foreground/60">ORDER OPERATIONS</span>
+                                </span>
                             </Link>
                         </SidebarMenuButton>
                     </SidebarMenuItem>
-
-                    {orderOpen && (
-                        <div className="mb-1 ml-7 mt-1 space-y-1 border-l border-slate-200 pl-3">
-                            {orderSubMenus.map((item) => {
-                                const active = isSubMenuActive(item.href, pathname, view);
-                                return (
-                                    <Link
-                                        key={item.title}
-                                        href={item.href}
-                                        onClick={closeSidebar}
-                                        className={cn(
-                                            "flex h-8 items-center rounded-md px-2 text-[13px] font-bold transition",
-                                            active ? "bg-red-50 text-[#ff321c]" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
-                                        )}
-                                    >
-                                        {item.title}
-                                    </Link>
-                                );
-                            })}
-                        </div>
-                    )}
-
-                    <StaticMenu icon={Heart} title="찜 리스트" />
-                    <StaticMenu icon={ShoppingBag} title="장바구니" />
-                    <StaticMenu icon={ReceiptText} title="주문 내역" />
-                    <StaticMenu icon={Truck} title="배송 조회" />
-                    <StaticMenu icon={Globe2} title="통관고유부호" />
                 </SidebarMenu>
+            </SidebarHeader>
+
+            <SidebarContent className="py-2">
+                <NavigationGroup
+                    label="운영 개요"
+                    items={overviewItems}
+                    pathname={pathname}
+                    view={view}
+                    onNavigate={closeMobileSidebar}
+                />
+                <NavigationGroup
+                    label="주문 운영"
+                    items={operationItems}
+                    pathname={pathname}
+                    view={view}
+                    onNavigate={closeMobileSidebar}
+                />
+                <NavigationGroup
+                    label="데이터·설정"
+                    items={settingsItems}
+                    pathname={pathname}
+                    view={view}
+                    onNavigate={closeMobileSidebar}
+                />
             </SidebarContent>
 
-            <SidebarFooter className="gap-3 border-t border-slate-100 px-2 py-3">
-                <button
-                    type="button"
-                    className="flex h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-slate-50 text-xs font-bold text-slate-500 hover:bg-white"
-                    onClick={resetDemoData}
-                >
-                    <DatabaseBackup className="size-3.5" />
-                    데모 데이터 초기화
-                </button>
-                <button
-                    type="button"
-                    className="flex h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white text-xs font-bold text-slate-600 hover:bg-slate-50"
-                    onClick={logout}
-                >
-                    <LogOut className="size-3.5" />
-                    로그아웃
-                </button>
+            <SidebarFooter className="border-t border-sidebar-border p-2">
+                <SidebarMenu>
+                    <SidebarMenuItem>
+                        <SidebarMenuButton tooltip="데모 데이터 초기화" onClick={resetDemoData}>
+                            <DatabaseBackup />
+                            <span>데모 데이터 초기화</span>
+                        </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                        <SidebarMenuButton tooltip="로그아웃" onClick={logout}>
+                            <LogOut />
+                            <span>로그아웃</span>
+                        </SidebarMenuButton>
+                    </SidebarMenuItem>
+                </SidebarMenu>
             </SidebarFooter>
         </Sidebar>
     );
 }
 
-function StaticMenu({ icon: Icon, title }: { icon: React.ComponentType<{ className?: string }>; title: string }) {
+function NavigationGroup({
+    label,
+    items,
+    pathname,
+    view,
+    onNavigate,
+}: {
+    label: string;
+    items: NavigationItem[];
+    pathname: string;
+    view: string | null;
+    onNavigate: () => void;
+}) {
     return (
-        <SidebarMenuItem>
-            <SidebarMenuButton asChild tooltip={title} className="h-12 rounded-md px-4 text-[16px] font-extrabold text-slate-900 hover:bg-slate-50">
-                <button type="button" disabled className="flex w-full cursor-default items-center gap-3">
-                    <Icon className="size-5 shrink-0 text-slate-400" />
-                    <span>{title}</span>
-                </button>
-            </SidebarMenuButton>
-        </SidebarMenuItem>
+        <SidebarGroup>
+            <SidebarGroupLabel className="text-xs font-bold uppercase tracking-[0.14em]">
+                {label}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+                <SidebarMenu>
+                    {items.map((item) => {
+                        const active = item.isActive(pathname, view);
+                        const Icon = item.icon;
+
+                        return (
+                            <SidebarMenuItem key={item.href}>
+                                <SidebarMenuButton
+                                    asChild
+                                    tooltip={item.title}
+                                    isActive={active}
+                                    className="h-11 rounded-md data-[active=true]:font-bold"
+                                >
+                                    <Link href={item.href} onClick={onNavigate}>
+                                        <Icon />
+                                        <span className="grid min-w-0 flex-1 leading-tight">
+                                            <span className="truncate text-sm">{item.title}</span>
+                                            <span className="truncate text-xs font-normal text-sidebar-foreground/55 group-data-[collapsible=icon]:hidden">
+                                                {item.description}
+                                            </span>
+                                        </span>
+                                    </Link>
+                                </SidebarMenuButton>
+                            </SidebarMenuItem>
+                        );
+                    })}
+                </SidebarMenu>
+            </SidebarGroupContent>
+        </SidebarGroup>
     );
 }

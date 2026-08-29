@@ -13,6 +13,7 @@ export const NAVER_OUTBOUND_COMMAND_TYPES = [
     "ORDER_CONFIRM",
     "INVOICE_SUBMIT",
     "DIRECT_DELIVERY",
+    "SHIPPING_PROCESS",
     "SELLER_CANCEL",
 ] as const;
 
@@ -65,7 +66,7 @@ export interface NaverCommandOrderItem {
     marketStatusRaw: string;
     marketFulfillmentStatus: string | null;
     sourcingStatus: string;
-    marketDeliveryMethod: "DELIVERY" | "DIRECT_DELIVERY" | null;
+    marketDeliveryMethod: "DELIVERY" | "DIRECT_DELIVERY" | "OVERSEAS_OTHER_DELIVERY" | null;
     domesticCarrierCode: string | null;
     domesticTrackingNumber: string | null;
     confirmedAt: string | null;

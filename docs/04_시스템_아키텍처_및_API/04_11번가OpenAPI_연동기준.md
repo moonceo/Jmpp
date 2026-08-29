@@ -54,9 +54,9 @@ cursor가 없으면 조회 구간 overlap과 외부 ID 멱등 upsert를 사용�
 
 - 발주확인은 상품주문 단위로 명령을 만든다.
 - 배송은 택배사·송장 필수값을 endpoint별 schema로 변환한다.
-- 송장 정정 가능 상태와 API를 실계정에서 확인한다.
-- 직접전달은 공개문서에서 확인하지 못했으므로 UNSUPPORTED를 기본값으로 둔다.
-- 판매자센터에서 수동 처리한 건은 단건 재동기화로 내부 상태를 맞춘다.
+- 연동 시 계정 기본 발송 방식을 `송장전송` 또는 `직접전달`로 필수 저장한다. 직접전달 실제 endpoint와 요청값은 실계정 UAT 완료 전까지 capability를 활성화하지 않는다.
+- 최초 발송 전송 후에는 송장·직접전달 방식을 API로 정정하지 않는다.
+- 정정은 11번가 판매자센터에서 직접 처리하고 단건 재동기화로 내부 상태를 맞춘다.
 
 ## 6. 취소·반품·교환
 
@@ -89,7 +89,7 @@ cursor가 없으면 조회 구간 overlap과 외부 ID 멱등 upsert를 사용�
 4. 직접전달
 5. 개인통관고유부호
 6. 부분 성공
-7. 송장 정정
+7. 판매자센터 수동 정정 후 재수집
 8. 클레임별 처리 가능 상태와 사유코드
 9. 테스트 주문 생성·취소 절차
 
@@ -98,8 +98,8 @@ cursor가 없으면 조회 구간 overlap과 외부 ID 멱등 upsert를 사용�
 - 최초·증분 주문수집
 - 주문확인 전 주소 변경
 - 주문확인과 부분 실패
-- 일반 송장과 가능한 경우 정정
-- 직접전달 capability 미지원 처리
+- 일반 송장과 직접전달 계정 기본값 처리
+- 발송 후 판매자센터 수동 정정과 재수집
 - 판매자 취소와 구매자 취소
 - 반품 승인·거부·회수·환불
 - 교환 승인·거부·회수·재배송
@@ -112,4 +112,3 @@ cursor가 없으면 조회 구간 overlap과 외부 ID 멱등 upsert를 사용�
 - https://openapi.11st.co.kr/openapi/OpenApiServiceIntroduce.tmall?introduceType=ORDER
 - https://openapi.11st.co.kr/openapi/OpenApiServiceIntroduce.tmall?introduceType=CLAIM
 - https://openapi.11st.co.kr/openapi/OpenApiFaqBoard.tmall?method=getFaqBoardList&unityBrdNo=55
-

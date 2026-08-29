@@ -26,6 +26,7 @@ export const mockInquiries: Inquiry[] = [
         writerId: "happy_day",
         writerName: "김*수",
         createdAt: format(subHours(now, 2), "yyyy-MM-dd HH:mm"),
+        orderId: "ORD-20260610-0001",
     },
     {
         id: "inq_002",

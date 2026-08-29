@@ -44,11 +44,13 @@ export interface OrderItemListItem {
     quantity: number;
     unitPrice: string;
     itemTotal: string;
+    paymentShippingFee: string;
     internalWorkStatus: NormalizedOrderStatus;
     sourcingStatus: string;
     sourcingVerificationProvenance: "MANUAL_UNVERIFIED" | "SERVER_VERIFIED" | null;
     marketFulfillmentStatus: string | null;
     marketDeliveryMethod: string | null;
+    shippingProcessStarted: boolean;
     domesticCarrierCode: string | null;
     domesticTrackingNumber: string | null;
     version: string;
@@ -246,6 +248,7 @@ async function loadItemsByOrderId(
                         'quantity', oi.quantity,
                         'unitPrice', oi.unit_price::text,
                         'itemTotal', oi.item_total::text,
+                        'paymentShippingFee', COALESCE(oi.attributes ->> 'paymentShippingFee', '0'),
                         'internalWorkStatus', oi.internal_work_status,
                         'sourcingStatus', oi.sourcing_status,
                         'sourcingVerificationProvenance', CASE
@@ -257,6 +260,18 @@ async function loadItemsByOrderId(
                         END,
                         'marketFulfillmentStatus', oi.market_fulfillment_status,
                         'marketDeliveryMethod', oi.market_delivery_method,
+                        'marketCarrierCode', oi.attributes #>> '{marketShippingReference,carrierCode}',
+                        'marketTrackingNumber', oi.attributes #>> '{marketShippingReference,trackingNumber}',
+                        'marketShippingRegisteredAt', oi.attributes #>> '{marketShippingReference,registeredAt}',
+                        'shippingProcessStarted', EXISTS (
+                            SELECT 1
+                              FROM outbound_commands shipping_command
+                             WHERE shipping_command.tenant_id = oi.tenant_id
+                               AND shipping_command.order_item_id = oi.id
+                               AND shipping_command.deleted_at IS NULL
+                               AND shipping_command.command_type IN ('SHIPPING_PROCESS', 'INVOICE_SUBMIT', 'DIRECT_DELIVERY')
+                               AND shipping_command.status IN ('PENDING', 'LEASED', 'RETRY', 'UNKNOWN', 'SUCCEEDED')
+                        ),
                         'domesticCarrierCode', oi.domestic_carrier_code,
                         'domesticTrackingNumber', oi.domestic_tracking_number,
                         'version', oi.version::text

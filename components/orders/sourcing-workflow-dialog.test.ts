@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { calculateSourcingMargin } from "@/components/orders/sourcing-workflow-dialog";
+import {
+    buildSavedSourcingCandidate,
+    canProceedToPayment,
+    calculateSourcingMargin,
+    transitionPriceNegotiation,
+} from "@/components/orders/sourcing-workflow-dialog";
 import { getSourcingCandidates } from "@/lib/mock-data/sourcing-life";
+import { mockOrders } from "@/lib/mock-data/orders";
 
 describe("sourcing recommendation cards", () => {
     it("provides every option needed by the two-column recommendation cards", () => {
@@ -92,5 +98,51 @@ describe("sourcing margin calculation", () => {
             priceCny: 51.25,
             priceKrw: 11250,
         });
+    });
+});
+
+describe("saved sourcing match", () => {
+    it("keeps the saved product, option, and unit cost when the candidate list no longer contains the match", () => {
+        const order = mockOrders.find((item) => item.id === "ORD-20260617-0029");
+        expect(order).toBeDefined();
+
+        const candidate = buildSavedSourcingCandidate(order!, getSourcingCandidates(order!.id)[0]);
+
+        expect(candidate).toMatchObject({
+            id: "ORD-20260617-0029-MATCH-01",
+            productId: "SL-P-0029-01",
+            productName: "접이식 빨래 건조대 대형",
+            priceKrw: 21100,
+        });
+        expect(candidate?.options[0]).toMatchObject({
+            id: "large-silver",
+            label: "대형 / 실버",
+            priceKrw: 21100,
+        });
+    });
+});
+
+describe("price negotiation controls", () => {
+    it("starts a Chinese seller price request only from idle", () => {
+        expect(transitionPriceNegotiation("IDLE", "REQUEST")).toEqual({
+            status: "REQUESTED",
+            message: "가격을 조금 낮춰주실 수 있을까요?",
+            sentAt: "깎아줘 요청",
+        });
+        expect(transitionPriceNegotiation("REQUESTED", "REQUEST")).toBeUndefined();
+    });
+
+    it("cancels only an active price request", () => {
+        expect(transitionPriceNegotiation("REQUESTED", "CANCEL")).toEqual({
+            status: "IDLE",
+            message: "가격 인하 요청을 취소합니다.",
+            sentAt: "깎아줘 취소",
+        });
+        expect(transitionPriceNegotiation("IDLE", "CANCEL")).toBeUndefined();
+    });
+
+    it("blocks payment while a price request is active", () => {
+        expect(canProceedToPayment("REQUESTED")).toBe(false);
+        expect(canProceedToPayment("IDLE")).toBe(true);
     });
 });

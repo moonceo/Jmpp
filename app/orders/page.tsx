@@ -1,5 +1,6 @@
 import { OrdersPageClient, OrdersView } from "@/components/orders/orders-page-client";
 import { ClaimsPageClient } from "@/components/claims/claims-page-client";
+import { createMockOrders } from "@/lib/mock-data/orders";
 
 interface OrdersPageProps {
     searchParams?: Promise<{
@@ -21,5 +22,5 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
 
     if (activeView === "claims") return <ClaimsPageClient />;
 
-    return <OrdersPageClient activeView={activeView} />;
+    return <OrdersPageClient activeView={activeView} initialOrders={createMockOrders(new Date())} />;
 }

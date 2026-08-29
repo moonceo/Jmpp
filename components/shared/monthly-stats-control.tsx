@@ -12,6 +12,8 @@ export function MonthlyStatsControl() {
         toggleMarginConfirmed,
         excludeCancelReturn,
         toggleExcludeCancelReturn,
+        includeDirectInputCosts,
+        toggleDirectInputCosts,
         selectedMonth,
         prevMonth,
         nextMonth
@@ -33,7 +35,7 @@ export function MonthlyStatsControl() {
             </div>
 
             {/* Toggles */}
-            <div className="flex items-center gap-6 order-1 lg:order-2">
+            <div className="order-1 flex flex-wrap items-center gap-4 lg:order-2 lg:justify-end">
                 <div className="flex items-center space-x-2">
                     <Switch
                         id="margin-only"
@@ -53,6 +55,16 @@ export function MonthlyStatsControl() {
                     />
                     <Label htmlFor="exclude-cancel" className="cursor-pointer font-normal text-sm">
                         취소/반품 제거 (순매출)
+                    </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                    <Switch
+                        id="direct-input-costs"
+                        checked={includeDirectInputCosts}
+                        onCheckedChange={toggleDirectInputCosts}
+                    />
+                    <Label htmlFor="direct-input-costs" className="cursor-pointer text-sm font-normal">
+                        직접 입력 비용 반영
                     </Label>
                 </div>
             </div>

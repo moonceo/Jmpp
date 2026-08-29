@@ -99,10 +99,11 @@ export interface MappedNaverOrderItem {
   quantity: number;
   unitPrice: number;
   itemTotal: number;
+  paymentShippingFee: number;
   internalWorkStatus: MappedNaverOrder["normalizedStatus"];
   marketStatusRaw: string;
   marketFulfillmentStatus: string | null;
-  marketDeliveryMethod: "DELIVERY" | "DIRECT_DELIVERY" | null;
+  marketDeliveryMethod: "DELIVERY" | "DIRECT_DELIVERY" | "OVERSEAS_OTHER_DELIVERY" | null;
   domesticCarrierCode: string | null;
   domesticTrackingNumber: string | null;
   sourceUpdatedAt: string;

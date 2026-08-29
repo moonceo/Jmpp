@@ -59,7 +59,7 @@ function executionContext(type = "DIRECT_DELIVERY"): NaverCommandExecutionContex
             internalWorkStatus: "PREPARING",
             marketStatusRaw: "PAYED",
             marketFulfillmentStatus: "ACKNOWLEDGED",
-            sourcingStatus: "MATCHED",
+            sourcingStatus: "EXTERNAL_PURCHASE",
             marketDeliveryMethod: null,
             domesticCarrierCode: null,
             domesticTrackingNumber: null,
@@ -173,7 +173,7 @@ describe("PostgresNaverOutboundCommandStore", () => {
                     internal_work_status: "PREPARING",
                     market_status_raw: "PAYED",
                     market_fulfillment_status: "ACKNOWLEDGED",
-                    sourcing_status: "MATCHED",
+                    sourcing_status: "EXTERNAL_PURCHASE",
                     market_delivery_method: null,
                     domestic_carrier_code: null,
                     domestic_tracking_number: null,
@@ -221,7 +221,7 @@ describe("PostgresNaverOutboundCommandStore", () => {
         expect(commandUpdate).toBeGreaterThan(headerUpdate);
         expect(commit).toBeGreaterThan(commandUpdate);
         expect(calls[itemUpdate].values?.[5]).toBe("DIRECT_DELIVERY");
-        expect(calls[itemUpdate].values?.[7]).toBe("PREPARING");
+        expect(calls[itemUpdate].values?.[7]).toBe("SHIPPING");
         expect(calls[headerUpdate].values?.[3]).toBe("SHIPPING");
     });
 });

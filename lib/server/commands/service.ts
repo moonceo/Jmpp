@@ -6,6 +6,7 @@ import {
     decideCapabilityExecution,
     MARKET_CAPABILITY_MODES,
     type MarketCapability,
+    type MarketCapabilityAction,
 } from "@/lib/server/domain/market-capability";
 import { ApiError } from "@/lib/server/http/api-error";
 import {
@@ -17,7 +18,6 @@ import {
 } from "@/lib/server/commands/repository";
 import type {
     OrderItemCommandRequest,
-    SupportedOrderItemCommandType,
 } from "@/lib/server/commands/schemas";
 
 const storedCapabilitySchema = z.object({
@@ -83,7 +83,7 @@ function canonicalJson(value: unknown): string {
 
 function configuredCapability(
     capabilities: unknown,
-    action: SupportedOrderItemCommandType,
+    action: MarketCapabilityAction,
 ): MarketCapability | undefined {
     if (!isRecord(capabilities)) return undefined;
 
@@ -101,7 +101,7 @@ function configuredCapability(
 
 export function requireConfiguredApiCapability(
     capabilities: unknown,
-    action: SupportedOrderItemCommandType,
+    action: MarketCapabilityAction,
 ): void {
     const capability = configuredCapability(capabilities, action);
     const decision = decideCapabilityExecution(capability);
@@ -121,6 +121,23 @@ export function requireConfiguredApiCapability(
             },
         );
     }
+}
+
+function capabilityActionForRequest(request: OrderItemCommandRequest): MarketCapabilityAction {
+    if (request.type === "SHIPPING_PROCESS") {
+        return request.payload.requestedMethod === "DIRECT_DELIVERY"
+            ? "DIRECT_DELIVERY"
+            : "INVOICE_SUBMIT";
+    }
+    return request.type;
+}
+
+export function applyConfiguredShippingProcessPreference(
+    request: OrderItemCommandRequest,
+    context: Pick<LockedOrderItemCommandContext, "marketCode" | "settings">,
+): OrderItemCommandRequest {
+    void context;
+    return request;
 }
 
 export function isExactCommandReplay(
@@ -174,17 +191,19 @@ export async function acceptOrderItemCommand(
         throw new ApiError(404, "ORDER_ITEM_NOT_FOUND", "The order item was not found.");
     }
 
+    const request = applyConfiguredShippingProcessPreference(input.request, context);
+
     const pending = createPendingOutboundCommand({
         id: input.commandId ?? randomUUID(),
         tenantId: input.tenantId,
         aggregate: {
             type: "ORDER_ITEM",
             id: context.id,
-            expectedVersion: input.request.expectedVersion,
+            expectedVersion: request.expectedVersion,
         },
-        type: input.request.type,
-        effectKey: input.request.effectKey,
-        payload: input.request.payload,
+        type: request.type,
+        effectKey: request.effectKey,
+        payload: request.payload,
         requestedBy: input.membershipId,
         correlationId: input.correlationId,
         createdAt: input.createdAt ?? new Date().toISOString(),
@@ -197,27 +216,27 @@ export async function acceptOrderItemCommand(
     );
 
     if (existing) {
-        if (!isExactCommandReplay(existing, context, input.request)) {
+        if (!isExactCommandReplay(existing, context, request)) {
             throw idempotencyConflict();
         }
 
         return { command: existing, replayed: true };
     }
 
-    if (context.version !== input.request.expectedVersion) {
+    if (context.version !== request.expectedVersion) {
         throw new ApiError(
             409,
             "ORDER_ITEM_VERSION_CONFLICT",
             "The order item changed after it was loaded. Refresh and retry.",
             {
-                expectedVersion: input.request.expectedVersion,
+                expectedVersion: request.expectedVersion,
                 currentVersion: context.version,
             },
         );
     }
 
     requireUsableMarketAccount(context);
-    requireConfiguredApiCapability(context.capabilities, input.request.type);
+    requireConfiguredApiCapability(context.capabilities, capabilityActionForRequest(request));
 
     const inserted = await insertPendingOutboundCommand(
         client,
@@ -237,7 +256,7 @@ export async function acceptOrderItemCommand(
         pending.idempotencyKey,
     );
 
-    if (!raced || !isExactCommandReplay(raced, context, input.request)) {
+    if (!raced || !isExactCommandReplay(raced, context, request)) {
         throw idempotencyConflict();
     }
 
@@ -262,6 +281,15 @@ function payloadSummary(command: StoredOutboundCommand): Record<string, unknown>
             };
         case "DIRECT_DELIVERY":
             return { dispatchAt: payload.dispatchAt };
+        case "SHIPPING_PROCESS":
+            return {
+                requestedMethod: payload.requestedMethod,
+                ...(payload.requestedMethod === "OVERSEAS_OTHER_DELIVERY" ? {
+                    carrierCode: payload.carrierCode,
+                    trackingNumberMasked: maskedTrackingNumber(payload.trackingNumber),
+                } : {}),
+                dispatchAt: payload.dispatchAt,
+            };
         case "SELLER_CANCEL":
             return {
                 reasonCode: payload.reasonCode,
